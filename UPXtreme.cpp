@@ -82,9 +82,19 @@ void UPXtreme::start()
 	{
         while (true) {
             // Serialize the SystemCommand object
-            std::vector<uint8_t> serialized_data = sys_command_.serialize();
+            if(sys_command_)
+                std::cout << "sys_command_ ok\n";
+            else
+                std::cout << "sys_command_ ga ok\n";
+            sys_command_->printValue();
+            if (sys_command_)
+            {   
+                std::cout << "Type: " << typeid(*sys_command_).name() << std::endl;
+                std::vector<uint8_t> serialized_data = sys_command_->serializeWithHeader();
+                sendToTeensy(serialized_data, serialized_data.size());
+            }
+            else
 
-            sendToTeensy(serialized_data, serialized_data.size());
             std::this_thread::sleep_for(std::chrono::microseconds(200));
         }
     });

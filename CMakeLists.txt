@@ -9,7 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 find_package(Threads REQUIRED)
 find_path(ASIO_INCLUDE_DIR asio.hpp)
 
-add_library(upxtreme SHARED UPXtreme.cpp)
+add_library(upxtreme SHARED UPXtreme.cpp CommandBase.cpp)
 target_include_directories(upxtreme PRIVATE ${ASIO_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(upxtreme Threads::Threads)
 

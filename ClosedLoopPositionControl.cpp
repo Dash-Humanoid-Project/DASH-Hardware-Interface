@@ -1,7 +1,8 @@
 #include <chrono>
 #include <cmath>  // For M_PI if needed
+#include <memory>
+#include "Command.h"
 #include "SystemConfig.h"
-#include "SystemCommand.h"
 #include "UPXtreme.h"
 
 #ifndef TWO_PI
@@ -60,12 +61,14 @@ public:
 
             float phase = t * (TWO_PI / SINE_PERIOD);
 
-            cmd.position = sin(phase);
-            cmd.velocity_ff = cos(phase) * (TWO_PI / SINE_PERIOD);
+            Input_Pos_TYPE desired_position = sin(phase);
+            Vel_FF_TYPE velocity_ff = cos(phase) * (TWO_PI / SINE_PERIOD);
+
+            cmd_ptr = std::make_shared<PositionCommand>(desired_position, velocity_ff);
 
             for (size_t id = 0; id < pc_.size(); ++id)
             {
-                pc_[id]->sys_command_ = cmd;
+                pc_[id]->setPositionCommand(cmd_ptr);
                 std::cout << "[Pos_Estimate] : " << pc_[id]->sys_data_.encoder_Pos_Estimate << std::endl;
                 std::cout << "[Vel_Estimate] : " << pc_[id]->sys_data_.encoder_Vel_Estimate << std::endl;
             }
@@ -74,7 +77,7 @@ public:
     }
 
     SystemConfig config;
-    SystemCommand cmd;
+    std::shared_ptr<PositionCommand> cmd_ptr;
 
     float SINE_PERIOD = 5.0f; // Period of the position command sine wave in seconds
 

@@ -8,7 +8,7 @@
 #include <asio.hpp>
 #include <cmath>
 #include "SystemConfig.h"
-#include "SystemCommand.h"
+#include "Command.h"
 #include "SystemData.h"
 #include "Utils.h"
 
@@ -32,13 +32,23 @@ private:
     std::thread send_thread;
 
 public:
-	// TODO(@nicholasadr): move System* to private
-    SystemCommand sys_command_; //
+	// TODO(@nicholasadr): move to private
+    std::shared_ptr<CommandBase> sys_command_; //
     SystemData sys_data_;
 
     UPXtreme(const std::string &ip, const std::string &interface, int port, int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
 
     ~UPXtreme() {}
+
+    // Accepts a shared pointer to PositionCommand and stores it as CommandBase
+    void setPositionCommand(std::shared_ptr<PositionCommand> cmd) {
+        sys_command_ = cmd;
+    }
+
+    // Accepts a shared pointer to TorqueCommand and stores it as CommandBase
+    void setTorqueCommand(std::shared_ptr<TorqueCommand> cmd) {
+        sys_command_ = cmd;
+    }
 
     void sendToTeensy(const std::vector<uint8_t> &data, const int data_size);
 

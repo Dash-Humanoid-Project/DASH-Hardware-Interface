@@ -5,6 +5,7 @@
 #include "ODriveCAN.h"
 #include "ODriveFlexCAN.hpp"
 #include <QNEthernet.h>
+#include "Command.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 #define ODRV0_NODE_ID 0
@@ -45,41 +46,39 @@ unsigned int packet_count_bus2[MAX_NODES] = {0};
 bool first_packet_recv = false;
 const uint8_t RESET_COMMAND = 0xFF;
 
-// SystemCommand structure for Position Control
-struct SystemCommand {
-    float position;     // desired position
-    float velocity_ff;  // velocity feedforward
-
-    // Serialize SystemCommand into a vector of uint8_t
-    std::vector<uint8_t> serialize()
-    {
-        std::vector<uint8_t> data(sizeof(SystemCommand));
-
-        // Copy the position and velocity_ff into the buffer
-        std::memcpy(data.data(), &position, sizeof(position));
-        std::memcpy(data.data() + sizeof(position), &velocity_ff, sizeof(velocity_ff));
-
-        return data;
+//std::unique_ptr<CommandBase> CommandBase::fromBuffer(const std::vector<uint8_t>& buffer)
+std::unique_ptr<CommandBase> fromBuffer(const std::vector<uint8_t>& buffer)
+{
+    if (buffer.empty()) {
+        std::cerr << "Empty buffer!\n";
+        return nullptr;
     }
 
-    // Deserialize froma buffer of uint8_t to populate the SystemCommand fields
-    static SystemCommand deserialize(const std::vector<uint8_t>& buffer)
-    {
-        SystemCommand cmd;
+    MsgType type = static_cast<MsgType>(buffer[0]);
+    // TODO(@nicholasadr): unnecessary?
+    std::vector<uint8_t> payload(buffer.begin() + 1, buffer.end());
 
-        // Check if the buffer is large enough to hold the data
-        if (buffer.size() >= sizeof(SystemCommand)) {
-                // Copy the position and velocity_ff from the buffer
-                std::memcpy(&cmd.position, buffer.data(), sizeof(cmd.position));
-                std::memcpy(&cmd.velocity_ff, buffer.data() + sizeof(cmd.position), sizeof(cmd.velocity_ff));
-        } else {
-                std::cerr << "Error: Buffer size is too small to deserialize into SystemCommand." << std::endl;
+    switch (type) {
+        case MsgType::PositionCommand:
+        {
+            Serial.println("MsgType::PositionCommand");
+            PositionCommand cmd;
+            cmd.deserialize(payload);
+            return std::make_unique<PositionCommand>(cmd);
         }
-
-        return cmd;
+        case MsgType::TorqueCommand:
+        {
+            Serial.println("MsgType::TorqueCommand");
+            TorqueCommand cmd;
+            cmd.deserialize(payload);
+            return std::make_unique<TorqueCommand>(cmd);
+        }
+        default:
+            Serial.println("Unknown MsgType");
+            std::cerr << "Unknown MsgType!\n";
+            return nullptr;
     }
-
-};
+}
 
 struct SystemData {
     float encoder_Pos_Estimate;  // [rev]
@@ -144,7 +143,7 @@ void printIPAddress()
     printf("    DNS          = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
 }
 
-SystemCommand sys_command_;
+std::unique_ptr<CommandBase> sys_command_;
 
 // Instantiate ODrive objects
 ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
@@ -326,6 +325,7 @@ void receiveUDPPacket()
 
     if (size >= 0)
     {
+        Serial.println("Received UDP packet");
         const uint8_t *data = udp.data();
         
         if (!first_packet_recv)
@@ -344,7 +344,8 @@ void receiveUDPPacket()
                 if (received_crc == calculated_crc)
                 {
                     // CRC check passed, process the data
-                    sys_command_ = SystemCommand::deserialize(payload);
+                    Serial.println("crc ok");
+                    sys_command_ = fromBuffer(payload);
                 }
                 else
                 {
@@ -363,9 +364,13 @@ void receiveUDPPacket()
 
 void sendCANCommandToODrive()
 {
-    //printf("sys_command_ position: %.2f\n", sys_command_.position);
-    //printf("sys_command_ vel_ff  : %.2f\n", sys_command_.velocity_ff);
-    odrv0.setPosition(sys_command_.position, sys_command_.velocity_ff);
+    if (sys_command_)
+    {   
+        //printf("sys_command_ position: %.2f\n", sys_command_.position);
+        //printf("sys_command_ vel_ff  : %.2f\n", sys_command_.velocity_ff);
+        sys_command_->printValue();
+        //odrv0.setPosition(sys_command_->position, sys_command_->velocity_ff);
+    }
 }
 
 void sendUDPPacket()
