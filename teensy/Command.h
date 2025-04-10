@@ -5,25 +5,21 @@
 #include <iostream>
 #include "CommandBase.h"
 
-#define Input_Pos_TYPE float
-#define Vel_FF_TYPE uint16_t
-#define Torque_FF_TYPE uint16_t
-#define Input_Torque_TYPE float
-
 
 struct PositionCommand : public CommandBase {
-    float position;
-    int16_t velocity_ff;
+    Input_Pos_TYPE Input_Pos;
+    Vel_FF_TYPE Vel_FF;
+    Torque_FF_TYPE Torque_FF;
 
     // Custom constructor
-    PositionCommand(float pos, int16_t vel)
-        : position(pos), velocity_ff(vel) {}
+    PositionCommand(Input_Pos_TYPE p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
+        : Input_Pos(p), Vel_FF(v), Torque_FF(t) {}
 
     // Default constructor (needed for deserialize)
     PositionCommand() = default;
 
     size_t dataSize() const override {
-        return sizeof(position) + sizeof(velocity_ff);
+        return sizeof(Input_Pos) + sizeof(Vel_FF) + sizeof(Torque_FF);
     }
 
     MsgType getType() const override {
@@ -31,25 +27,69 @@ struct PositionCommand : public CommandBase {
     }
 
     void writeToBuffer(uint8_t* buffer) const override {
-        std::memcpy(buffer, &position, sizeof(position));
-        std::memcpy(buffer + sizeof(position), &velocity_ff, sizeof(velocity_ff));
+        std::memcpy(buffer, &Input_Pos, sizeof(Input_Pos));
+        std::memcpy(buffer + sizeof(Input_Pos), &Vel_FF, sizeof(Vel_FF));
+        std::memcpy(buffer + sizeof(Input_Pos) + sizeof(Vel_FF), &Torque_FF, sizeof(Torque_FF));
     }
 
     void readFromBuffer(const uint8_t* buffer, size_t size) override {
-        std::memcpy(&position, buffer, sizeof(position));
-        std::memcpy(&velocity_ff, buffer + sizeof(position), sizeof(velocity_ff));
+        std::memcpy(&Input_Pos, buffer, sizeof(Input_Pos));
+        std::memcpy(&Vel_FF, buffer + sizeof(Input_Pos), sizeof(Vel_FF));
+        std::memcpy(&Torque_FF, buffer + sizeof(Input_Pos) + sizeof(Vel_FF), sizeof(Torque_FF));
+    }
+
+    std::tuple<Input_Pos_TYPE, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
+        return { Input_Pos, Vel_FF, Torque_FF };
     }
 
     void printValue() override {
-        std::cout << "pos: " << position << " | velocity_ff: " << velocity_ff << std::endl;
+        std::cout << "Input_Pos: " << Input_Pos << " | Vel_FF: " << Vel_FF << " | Torque_FF: " << Torque_FF << std::endl;
+    }
+};
+
+struct VelocityCommand : public CommandBase {
+    Input_Vel_TYPE Input_Vel;
+    Input_Torque_FF_TYPE Input_Torque_FF;
+
+    // Custom constructor
+    VelocityCommand(Input_Vel_TYPE v, Input_Torque_FF_TYPE t = 0)
+        : Input_Vel(v), Input_Torque_FF(t) {}
+
+    // Default constructor (needed for deserialize)
+    VelocityCommand() = default;
+
+    size_t dataSize() const override {
+        return sizeof(Input_Vel) + sizeof(Input_Torque_FF);
+    }
+
+    MsgType getType() const override {
+        return MsgType::VelocityCommand;
+    }
+
+    void writeToBuffer(uint8_t* buffer) const override {
+        std::memcpy(buffer, &Input_Vel, sizeof(Input_Vel));
+        std::memcpy(buffer + sizeof(Input_Vel), &Input_Torque_FF, sizeof(Input_Torque_FF));
+    }
+
+    void readFromBuffer(const uint8_t* buffer, size_t size) override {
+        std::memcpy(&Input_Vel, buffer, sizeof(Input_Vel));
+        std::memcpy(&Input_Torque_FF, buffer + sizeof(Input_Vel), sizeof(Input_Torque_FF));
+    }
+
+    std::tuple<Input_Vel_TYPE, Input_Torque_FF_TYPE> getCommandValue() {
+        return { Input_Vel, Input_Torque_FF };
+    }
+
+    void printValue() override {
+        std::cout << "Input_Vel: " << Input_Vel << " | Input_Torque_FF: " << Input_Torque_FF << std::endl;
     }
 };
 
 struct TorqueCommand : public CommandBase {
-    float Input_Torque;
+    Input_Torque_TYPE Input_Torque;
 
     // Custom constructor
-    TorqueCommand(float torque)
+    TorqueCommand(Input_Torque_TYPE torque)
         : Input_Torque(torque) {}
 
     // Default constructor (needed for deserialize)
@@ -71,8 +111,11 @@ struct TorqueCommand : public CommandBase {
         std::memcpy(&Input_Torque, buffer, sizeof(Input_Torque));
     }
     
-    void printValue() override {
-        std::cout << "torque: " << Input_Torque << std::endl;
+    std::tuple<Input_Torque_TYPE> getCommandValue() {
+        return { Input_Torque };
     }
 
+    void printValue() override {
+        std::cout << "Input_Torque: " << Input_Torque << std::endl;
+    }
 };

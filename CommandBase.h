@@ -5,18 +5,22 @@
 #include <iostream>
 #include <memory>
 
-#define Input_Pos_TYPE float
-#define Vel_FF_TYPE uint16_t
-#define Torque_FF_TYPE uint16_t
-#define Input_Torque_TYPE float
+#define Input_Pos_TYPE       float
+#define Vel_FF_TYPE          int16_t
+#define Torque_FF_TYPE       int16_t
+#define Input_Vel_TYPE       float
+#define Input_Torque_FF_TYPE float
+#define Input_Torque_TYPE    float
 
 // Forward declarations
 struct PositionCommand;
+struct VelocityCommand;
 struct TorqueCommand; 
 
 enum class MsgType : uint8_t {
     PositionCommand = 0x01,
-    TorqueCommand   = 0x02,
+    VelocityCommand = 0x02,
+    TorqueCommand   = 0x03,
 };
 
 struct CommandBase {

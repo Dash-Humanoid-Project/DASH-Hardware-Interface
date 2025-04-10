@@ -83,17 +83,14 @@ void UPXtreme::start()
         while (true) {
             // Serialize the SystemCommand object
             if(sys_command_)
-                std::cout << "sys_command_ ok\n";
-            else
-                std::cout << "sys_command_ ga ok\n";
-            sys_command_->printValue();
-            if (sys_command_)
-            {   
-                std::cout << "Type: " << typeid(*sys_command_).name() << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(command_mutex);
                 std::vector<uint8_t> serialized_data = sys_command_->serializeWithHeader();
                 sendToTeensy(serialized_data, serialized_data.size());
+
             }
             else
+                std::cout << "sys_command_ is not initialized\n";
 
             std::this_thread::sleep_for(std::chrono::microseconds(200));
         }

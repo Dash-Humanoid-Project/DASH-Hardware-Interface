@@ -62,15 +62,24 @@ public:
             float phase = t * (TWO_PI / SINE_PERIOD);
 
             Input_Pos_TYPE desired_position = sin(phase);
-            Vel_FF_TYPE velocity_ff = cos(phase) * (TWO_PI / SINE_PERIOD);
+            // TODO: look into the proper scale of velocity_ff. Setting scale = 1 leads to jumpy motion currently
+            float scale = 0.5;
+            Vel_FF_TYPE velocity_ff = scale * cos(phase) * (TWO_PI / SINE_PERIOD);
 
+            //std::cout << "pos: " << desired_position << " | vel_ff: " << velocity_ff << std::endl;
             cmd_ptr = std::make_shared<PositionCommand>(desired_position, velocity_ff);
+            Input_Vel_TYPE desired_velocity = 0.5;
+            vcmd_ptr = std::make_shared<VelocityCommand>(desired_velocity);
+            float desired_torque = 0.1;
+            tcmd_ptr = std::make_shared<TorqueCommand>(desired_torque);
 
             for (size_t id = 0; id < pc_.size(); ++id)
             {
                 pc_[id]->setPositionCommand(cmd_ptr);
+                //pc_[id]->setVelocityCommand(vcmd_ptr);
+                //pc_[id]->setTorqueCommand(tcmd_ptr);
                 std::cout << "[Pos_Estimate] : " << pc_[id]->sys_data_.encoder_Pos_Estimate << std::endl;
-                std::cout << "[Vel_Estimate] : " << pc_[id]->sys_data_.encoder_Vel_Estimate << std::endl;
+                //std::cout << "[Vel_Estimate] : " << pc_[id]->sys_data_.encoder_Vel_Estimate << std::endl;
             }
         }
 
@@ -78,6 +87,8 @@ public:
 
     SystemConfig config;
     std::shared_ptr<PositionCommand> cmd_ptr;
+    std::shared_ptr<VelocityCommand> vcmd_ptr;
+    std::shared_ptr<TorqueCommand> tcmd_ptr;
 
     float SINE_PERIOD = 5.0f; // Period of the position command sine wave in seconds
 

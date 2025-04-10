@@ -46,37 +46,63 @@ unsigned int packet_count_bus2[MAX_NODES] = {0};
 bool first_packet_recv = false;
 const uint8_t RESET_COMMAND = 0xFF;
 
+// Instantiate ODrive objects // need to be declared early for fromBuffer()
+ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
+ODriveCAN* odrives[] = {&odrv0}; // Make sure all ODriveCAN instances are accounted for here
+
+template<typename Func, typename Tuple>
+void odriveCommandWrapper(Func&& f, Tuple&& args) {
+    std::apply(std::forward<Func>(f), std::forward<Tuple>(args));
+}
+
 //std::unique_ptr<CommandBase> CommandBase::fromBuffer(const std::vector<uint8_t>& buffer)
-std::unique_ptr<CommandBase> fromBuffer(const std::vector<uint8_t>& buffer)
+void fromBuffer(const std::vector<uint8_t>& buffer)
 {
     if (buffer.empty()) {
         std::cerr << "Empty buffer!\n";
         return nullptr;
     }
-
     MsgType type = static_cast<MsgType>(buffer[0]);
     // TODO(@nicholasadr): unnecessary?
     std::vector<uint8_t> payload(buffer.begin() + 1, buffer.end());
-
     switch (type) {
-        case MsgType::PositionCommand:
-        {
-            Serial.println("MsgType::PositionCommand");
+        case MsgType::PositionCommand: {
+            //Serial.println("MsgType::PositionCommand");
+            //Serial.print("MsgType::Position ");
             PositionCommand cmd;
             cmd.deserialize(payload);
-            return std::make_unique<PositionCommand>(cmd);
+            //return std::make_unique<PositionCommand>(cmd);
+            odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv0.setPosition(p, v_ff, t_ff); },
+                    cmd.getCommandValue());
+            break;
         }
-        case MsgType::TorqueCommand:
-        {
-            Serial.println("MsgType::TorqueCommand");
+        case MsgType::VelocityCommand: {
+            //Serial.print("MsgType::VelocityCommand ");
+            //Serial.println(static_cast<uint8_t>(type));
+            VelocityCommand cmd;
+            cmd.deserialize(payload);
+            //cmd.printValue();
+            odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv0.setVelocity(v, t_ff); },
+                    cmd.getCommandValue());
+            break;
+        }
+        case MsgType::TorqueCommand: {
+            //Serial.println("MsgType::TorqueCommand");
+            //Serial.print("MsgType::Torque ");
+            //Serial.println(static_cast<uint8_t>(type));
             TorqueCommand cmd;
             cmd.deserialize(payload);
-            return std::make_unique<TorqueCommand>(cmd);
+            //return std::make_unique<TorqueCommand>(cmd);
+            //odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv0.setTorque(t); },
+            //        cmd.getCommandValue());
+            break;
         }
-        default:
+        default: {
             Serial.println("Unknown MsgType");
             std::cerr << "Unknown MsgType!\n";
-            return nullptr;
+            break;
+            //return nullptr;
+        }
     }
 }
 
@@ -144,10 +170,6 @@ void printIPAddress()
 }
 
 std::unique_ptr<CommandBase> sys_command_;
-
-// Instantiate ODrive objects
-ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
-ODriveCAN* odrives[] = {&odrv0}; // Make sure all ODriveCAN instances are accounted for here
 
 struct ODriveUserData {
   Heartbeat_msg_t last_heartbeat;
@@ -311,65 +333,85 @@ void loop()
 {
     pumpEvents(can2); // This is required on some platforms to handle incoming feedback CAN messages
 
-    receiveUDPPacket(); // receive UDP message from UP to Teensy
+    parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
     if (!first_packet_recv)
         return;
 
-    sendCANCommandToODrive(); // send CAN command from Teensy to ODrive Pro
     sendUDPPacket(); // send UDP message from Teensy to UP
 }
 
-void receiveUDPPacket()
+void parseAndProcessUDPPacket()
 {
     int size = udp.parsePacket();
 
     if (size >= 0)
     {
-        Serial.println("Received UDP packet");
         const uint8_t *data = udp.data();
         
         if (!first_packet_recv)
             first_packet_recv = true;
 
-        // Extract the payload data
-        std::vector<uint8_t> payload(data, data+sizeof(float)*2);
+        const uint8_t msg_buffer = *data;
+        MsgType type = static_cast<MsgType>(msg_buffer);
+        //Serial.println(static_cast<uint8_t>(type));
 
-        // Calculate CRC-8 for the payload
-        uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
-
-        if (size == sizeof(float)*2+1)
-            {
-                const uint8_t received_crc = data[sizeof(float)*2];
-
-                if (received_crc == calculated_crc)
-                {
-                    // CRC check passed, process the data
-                    Serial.println("crc ok");
-                    sys_command_ = fromBuffer(payload);
-                }
-                else
-                {
-                    // CRC check failed, discard the data
-                    printf("CRC check failed\n");
-                    printf("Received CRC: %02X\n", received_crc);
-                    printf("Calculated CRC: %02X\n", calculated_crc);
-                }
+        switch (type) {
+        case MsgType::PositionCommand: {
+            //Serial.println("MsgType::PositionCommand");
+            //Serial.print("MsgType::Position ");
+            PositionCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {
+            if (true) {
+              cmd.deserialize(payload);
+              //return std::make_unique<PositionCommand>(cmd);
+              //cmd.printValue();
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv0.setPosition(p, v_ff, t_ff); },
+                    cmd.getCommandValue());
             }
-            else
-            {
-                printf("Invalid packet size\n");
+            break;
+        }
+        case MsgType::VelocityCommand: {
+            //Serial.print("MsgType::VelocityCommand ");
+            //Serial.println(static_cast<uint8_t>(type));
+            VelocityCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {
+            if (true) {
+              cmd.deserialize(payload);
+              //cmd.printValue();
+              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv0.setVelocity(v, t_ff); },
+                    cmd.getCommandValue());
             }
-    }
-}
-
-void sendCANCommandToODrive()
-{
-    if (sys_command_)
-    {   
-        //printf("sys_command_ position: %.2f\n", sys_command_.position);
-        //printf("sys_command_ vel_ff  : %.2f\n", sys_command_.velocity_ff);
-        sys_command_->printValue();
-        //odrv0.setPosition(sys_command_->position, sys_command_->velocity_ff);
+            break;
+        }
+        case MsgType::TorqueCommand: {
+            //Serial.print("MsgType::Torque ");
+            //Serial.println(static_cast<uint8_t>(type));
+            TorqueCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {  
+            if (true) {
+              cmd.deserialize(payload);
+              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv0.setTorque(t); },
+                      cmd.getCommandValue());
+            }
+            break;
+        }
+        default: {
+            std::cerr << "Unknown MsgType!\n";
+            break;
+        }
+        }
     }
 }
 
