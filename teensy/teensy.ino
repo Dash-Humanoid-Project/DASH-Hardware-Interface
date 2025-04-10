@@ -170,6 +170,7 @@ void printIPAddress()
 }
 
 std::unique_ptr<CommandBase> sys_command_;
+std::unique_ptr<SystemData> sys_data_;
 
 struct ODriveUserData {
   Heartbeat_msg_t last_heartbeat;
@@ -191,8 +192,10 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
 // Called every time a feedback message arrives from the ODrive
 void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
-  odrv_user_data->last_feedback = msg;
+  //odrv_user_data->last_feedback = msg;
   odrv_user_data->received_feedback = true;
+  sys_data_->encoder_Pos_Estimate = msg.Pos_Estimate;
+  sys_data_->encoder_Vel_Estimate = msg.Vel_Estimate;
 }
 
 // Called for every message that arrives on the CAN bus
@@ -219,6 +222,7 @@ void setup()
     };
 
     // Register callbacks for the heartbeat and encoder feedback messages
+    sys_data_ = std::make_unique<SystemData>();
     odrv0.onFeedback(onFeedback, &odrv0_user_data);
     odrv0.onStatus(onHeartbeat, &odrv0_user_data);
 
@@ -418,12 +422,13 @@ void parseAndProcessUDPPacket()
 void sendUDPPacket()
 {
     if (odrv0_user_data.received_feedback) {
-      Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
+      //Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
       odrv0_user_data.received_feedback = false;
 
-      SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
+      //SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
       uint8_t buffer[sizeof(float) * 2];
-      packet.serialize(buffer);
+      //packet.serialize(buffer);
+      sys_data_->serialize(buffer);
 
       if (!udp.send("10.176.32.14", PC_udp_port_listening, buffer, sizeof(buffer)))
       {
