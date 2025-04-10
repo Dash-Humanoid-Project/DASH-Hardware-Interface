@@ -61,6 +61,8 @@ UPXtreme::UPXtreme(const std::string &teensy_IP, const std::string &interface, i
 
 	std::cout << "send_socket    bound to " << send_socket.local_endpoint() << std::endl;
     std::cout << "receive_socket bound to " << receive_socket.local_endpoint() << std::endl;
+
+    sys_data_ = std::make_shared<SystemData>();
 }
 
 void UPXtreme::start()
@@ -71,7 +73,7 @@ void UPXtreme::start()
         static std::chrono::time_point<std::chrono::steady_clock> UDP_in_prev_time = std::chrono::steady_clock::now();
 
 		while (true) {
-			std::vector<uint8_t> recv_buffer(sizeof(float));
+			std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
 			asio::ip::udp::endpoint client_endpoint;
 			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
 			std::vector<uint8_t> received_data(recv_buffer.begin(), recv_buffer.begin() + bytes_received);
@@ -81,7 +83,7 @@ void UPXtreme::start()
             auto current_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> elapsed_time = current_time - UDP_in_prev_time;
             UDP_in_prev_time = current_time;
-            std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            //std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
             }
 	});
 
@@ -105,7 +107,7 @@ void UPXtreme::start()
             auto current_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> elapsed_time = current_time - UDP_out_prev_time;
             UDP_out_prev_time = current_time;
-            std::cout << "[UDP send] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            //std::cout << "[UDP send] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
         }
     });
 }
@@ -136,5 +138,5 @@ void UPXtreme::handleUDPPacket(const udp::endpoint &client_endpoint, const std::
     // Unpack the received data
     std::vector<uint8_t> data_list(data.begin(), data.end());
 
-    sys_data_ = SystemData::deserialize(data_list);
+    sys_data_->deserialize(data_list);
 }

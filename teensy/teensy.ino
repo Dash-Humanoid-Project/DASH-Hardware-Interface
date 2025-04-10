@@ -6,6 +6,7 @@
 #include "ODriveFlexCAN.hpp"
 #include <QNEthernet.h>
 #include "Command.h"
+#include "Data.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 #define ODRV0_NODE_ID 0
@@ -54,86 +55,6 @@ template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
     std::apply(std::forward<Func>(f), std::forward<Tuple>(args));
 }
-
-//std::unique_ptr<CommandBase> CommandBase::fromBuffer(const std::vector<uint8_t>& buffer)
-void fromBuffer(const std::vector<uint8_t>& buffer)
-{
-    if (buffer.empty()) {
-        std::cerr << "Empty buffer!\n";
-        return nullptr;
-    }
-    MsgType type = static_cast<MsgType>(buffer[0]);
-    // TODO(@nicholasadr): unnecessary?
-    std::vector<uint8_t> payload(buffer.begin() + 1, buffer.end());
-    switch (type) {
-        case MsgType::PositionCommand: {
-            //Serial.println("MsgType::PositionCommand");
-            //Serial.print("MsgType::Position ");
-            PositionCommand cmd;
-            cmd.deserialize(payload);
-            //return std::make_unique<PositionCommand>(cmd);
-            odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv0.setPosition(p, v_ff, t_ff); },
-                    cmd.getCommandValue());
-            break;
-        }
-        case MsgType::VelocityCommand: {
-            //Serial.print("MsgType::VelocityCommand ");
-            //Serial.println(static_cast<uint8_t>(type));
-            VelocityCommand cmd;
-            cmd.deserialize(payload);
-            //cmd.printValue();
-            odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv0.setVelocity(v, t_ff); },
-                    cmd.getCommandValue());
-            break;
-        }
-        case MsgType::TorqueCommand: {
-            //Serial.println("MsgType::TorqueCommand");
-            //Serial.print("MsgType::Torque ");
-            //Serial.println(static_cast<uint8_t>(type));
-            TorqueCommand cmd;
-            cmd.deserialize(payload);
-            //return std::make_unique<TorqueCommand>(cmd);
-            //odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv0.setTorque(t); },
-            //        cmd.getCommandValue());
-            break;
-        }
-        default: {
-            Serial.println("Unknown MsgType");
-            std::cerr << "Unknown MsgType!\n";
-            break;
-            //return nullptr;
-        }
-    }
-}
-
-struct SystemData {
-    float encoder_Pos_Estimate;  // [rev]
-    float encoder_Vel_Estimate;  // [rev/s]
-
-    // Constructor to initialize default values
-    SystemData() : encoder_Pos_Estimate(0.0f), encoder_Vel_Estimate(0.0f) {}
-
-    // Constructor from input arguments
-    SystemData(float pos_estimate, float vel_estimate) : encoder_Pos_Estimate(pos_estimate), encoder_Vel_Estimate(vel_estimate) {}
-
-    // Serialize the structure into a byte array
-    void serialize(uint8_t* buffer) const {
-        // Serialize Pos_Estimate and Vel_Estimate into the buffer
-        std::memcpy(buffer, &encoder_Pos_Estimate, sizeof(encoder_Pos_Estimate));
-        std::memcpy(buffer + sizeof(encoder_Pos_Estimate), &encoder_Vel_Estimate, sizeof(encoder_Vel_Estimate));
-    }
-
-    // Deserialize from byte array
-    static SystemData deserialize(const std::vector<uint8_t>& buffer) {
-        SystemData msg;
-
-        // Deserialize Pos_Estimate and Vel_Estimate from the buffer
-        std::memcpy(&msg.encoder_Pos_Estimate, buffer.data(), sizeof(encoder_Pos_Estimate));
-        std::memcpy(&msg.encoder_Vel_Estimate, buffer.data() + sizeof(encoder_Pos_Estimate), sizeof(encoder_Vel_Estimate));
-
-        return msg;
-    }
-};
 
 // Calculate CRC-8 checksum
 // CRC-8 polynomial (Dallas/Maxim)
@@ -426,9 +347,9 @@ void sendUDPPacket()
       odrv0_user_data.received_feedback = false;
 
       //SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
-      uint8_t buffer[sizeof(float) * 2];
+      uint8_t buffer[sys_data_->dataSize()];
       //packet.serialize(buffer);
-      sys_data_->serialize(buffer);
+      sys_data_->writeToBuffer(buffer);
 
       if (!udp.send("10.176.32.14", PC_udp_port_listening, buffer, sizeof(buffer)))
       {

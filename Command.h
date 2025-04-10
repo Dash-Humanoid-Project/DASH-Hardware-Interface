@@ -3,8 +3,17 @@
 #include <vector>
 #include <cstring>
 #include <iostream>
-#include "CommandBase.h"
+#include "MsgBase.h"
 
+#define Input_Pos_TYPE       float
+#define Vel_FF_TYPE          int16_t
+#define Torque_FF_TYPE       int16_t
+#define Input_Vel_TYPE       float
+#define Input_Torque_FF_TYPE float
+#define Input_Torque_TYPE    float
+
+
+struct CommandBase : public MsgBase {};
 
 struct PositionCommand : public CommandBase {
     Input_Pos_TYPE Input_Pos;
@@ -32,7 +41,7 @@ struct PositionCommand : public CommandBase {
         std::memcpy(buffer + sizeof(Input_Pos) + sizeof(Vel_FF), &Torque_FF, sizeof(Torque_FF));
     }
 
-    void readFromBuffer(const uint8_t* buffer, size_t size) override {
+    void readFromBuffer(const uint8_t* buffer) override {
         std::memcpy(&Input_Pos, buffer, sizeof(Input_Pos));
         std::memcpy(&Vel_FF, buffer + sizeof(Input_Pos), sizeof(Vel_FF));
         std::memcpy(&Torque_FF, buffer + sizeof(Input_Pos) + sizeof(Vel_FF), sizeof(Torque_FF));
@@ -71,7 +80,7 @@ struct VelocityCommand : public CommandBase {
         std::memcpy(buffer + sizeof(Input_Vel), &Input_Torque_FF, sizeof(Input_Torque_FF));
     }
 
-    void readFromBuffer(const uint8_t* buffer, size_t size) override {
+    void readFromBuffer(const uint8_t* buffer) override {
         std::memcpy(&Input_Vel, buffer, sizeof(Input_Vel));
         std::memcpy(&Input_Torque_FF, buffer + sizeof(Input_Vel), sizeof(Input_Torque_FF));
     }
@@ -107,7 +116,7 @@ struct TorqueCommand : public CommandBase {
         std::memcpy(buffer, &Input_Torque, sizeof(Input_Torque));
     }
 
-    void readFromBuffer(const uint8_t* buffer, size_t size) override {
+    void readFromBuffer(const uint8_t* buffer) override {
         std::memcpy(&Input_Torque, buffer, sizeof(Input_Torque));
     }
     

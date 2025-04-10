@@ -78,8 +78,8 @@ public:
                 pc_[id]->setPositionCommand(cmd_ptr);
                 //pc_[id]->setVelocityCommand(vcmd_ptr);
                 //pc_[id]->setTorqueCommand(tcmd_ptr);
-                std::cout << "[Pos_Estimate] : " << pc_[id]->sys_data_.encoder_Pos_Estimate << std::endl;
-                //std::cout << "[Vel_Estimate] : " << pc_[id]->sys_data_.encoder_Vel_Estimate << std::endl;
+
+                pc_[id]->sys_data_->printValue();
             }
         }
 
