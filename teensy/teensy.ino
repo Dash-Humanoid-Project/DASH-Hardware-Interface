@@ -47,6 +47,12 @@ unsigned int packet_count_bus2[MAX_NODES] = {0};
 bool first_packet_recv = false;
 const uint8_t RESET_COMMAND = 0xFF;
 
+unsigned long CAN_udp_msg_parse_time_mcs = 0.;
+unsigned long CAN_udp_msg_process_time_mcs = 0.;
+unsigned long CAN_udp_msg_send_time_mcs = 0.;
+unsigned long CAN_total_duration_mcs = 0.;
+unsigned long prev_time_mcs = 0.;
+
 // Instantiate ODrive objects // need to be declared early for fromBuffer()
 ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
 ODriveCAN* odrives[] = {&odrv0}; // Make sure all ODriveCAN instances are accounted for here
@@ -262,13 +268,35 @@ void loop()
     if (!first_packet_recv)
         return;
 
+    unsigned long start_time_mcs = micros();
     sendUDPPacket(); // send UDP message from Teensy to UP
+    CAN_udp_msg_send_time_mcs = micros() - start_time_mcs;
+
+    unsigned long current_time_mcs = micros();
+    unsigned long loop_duration_mcs = current_time_mcs - prev_time_mcs;
+    prev_time_mcs = current_time_mcs;
+    Serial.println("[CAN loop timing]");
+    Serial.print("frequency: ");
+    Serial.print(1000000/loop_duration_mcs);
+    Serial.print(" Hz | ");
+    Serial.print("parse time: ");
+    Serial.print(CAN_udp_msg_parse_time_mcs);
+    Serial.print(" mcs | ");
+    Serial.print("process time: ");
+    Serial.print(CAN_udp_msg_process_time_mcs);
+    Serial.print(" mcs | ");
+    Serial.print("send time: ");
+    Serial.print(CAN_udp_msg_send_time_mcs);
+    Serial.println(" mcs");
 }
 
 void parseAndProcessUDPPacket()
 {
+    unsigned long start_time_mcs = micros();
     int size = udp.parsePacket();
+    CAN_udp_msg_parse_time_mcs = micros() - start_time_mcs;
 
+    start_time_mcs = micros();
     if (size >= 0)
     {
         const uint8_t *data = udp.data();
@@ -338,6 +366,7 @@ void parseAndProcessUDPPacket()
         }
         }
     }
+    CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
 }
 
 void sendUDPPacket()
