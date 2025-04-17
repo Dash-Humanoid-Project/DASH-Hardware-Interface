@@ -14,6 +14,6 @@ target_include_directories(upxtreme PRIVATE ${ASIO_INCLUDE_DIR} ${CMAKE_CURRENT_
 target_link_libraries(upxtreme Threads::Threads)
 
 # Add executable
-add_executable(closed_loop_test ClosedLoopPositionControl.cpp)
+add_executable(closed_loop_test ClosedLoopControlTest.cpp)
 target_link_libraries(closed_loop_test upxtreme)
 target_include_directories(closed_loop_test PRIVATE ${ASIO_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
