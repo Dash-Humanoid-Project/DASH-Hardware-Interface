@@ -5,6 +5,8 @@
 #include "ODriveCAN.h"
 #include "ODriveFlexCAN.hpp"
 #include <QNEthernet.h>
+#include "Command.h"
+#include "Data.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 #define ODRV0_NODE_ID 0
@@ -45,70 +47,20 @@ unsigned int packet_count_bus2[MAX_NODES] = {0};
 bool first_packet_recv = false;
 const uint8_t RESET_COMMAND = 0xFF;
 
-// SystemCommand structure for Position Control
-struct SystemCommand {
-    float position;     // desired position
-    float velocity_ff;  // velocity feedforward
+unsigned long CAN_udp_msg_parse_time_mcs = 0.;
+unsigned long CAN_udp_msg_process_time_mcs = 0.;
+unsigned long CAN_udp_msg_send_time_mcs = 0.;
+unsigned long CAN_total_duration_mcs = 0.;
+unsigned long prev_time_mcs = 0.;
 
-    // Serialize SystemCommand into a vector of uint8_t
-    std::vector<uint8_t> serialize()
-    {
-        std::vector<uint8_t> data(sizeof(SystemCommand));
+// Instantiate ODrive objects // need to be declared early for fromBuffer()
+ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
+ODriveCAN* odrives[] = {&odrv0}; // Make sure all ODriveCAN instances are accounted for here
 
-        // Copy the position and velocity_ff into the buffer
-        std::memcpy(data.data(), &position, sizeof(position));
-        std::memcpy(data.data() + sizeof(position), &velocity_ff, sizeof(velocity_ff));
-
-        return data;
-    }
-
-    // Deserialize froma buffer of uint8_t to populate the SystemCommand fields
-    static SystemCommand deserialize(const std::vector<uint8_t>& buffer)
-    {
-        SystemCommand cmd;
-
-        // Check if the buffer is large enough to hold the data
-        if (buffer.size() >= sizeof(SystemCommand)) {
-                // Copy the position and velocity_ff from the buffer
-                std::memcpy(&cmd.position, buffer.data(), sizeof(cmd.position));
-                std::memcpy(&cmd.velocity_ff, buffer.data() + sizeof(cmd.position), sizeof(cmd.velocity_ff));
-        } else {
-                std::cerr << "Error: Buffer size is too small to deserialize into SystemCommand." << std::endl;
-        }
-
-        return cmd;
-    }
-
-};
-
-struct SystemData {
-    float encoder_Pos_Estimate;  // [rev]
-    float encoder_Vel_Estimate;  // [rev/s]
-
-    // Constructor to initialize default values
-    SystemData() : encoder_Pos_Estimate(0.0f), encoder_Vel_Estimate(0.0f) {}
-
-    // Constructor from input arguments
-    SystemData(float pos_estimate, float vel_estimate) : encoder_Pos_Estimate(pos_estimate), encoder_Vel_Estimate(vel_estimate) {}
-
-    // Serialize the structure into a byte array
-    void serialize(uint8_t* buffer) const {
-        // Serialize Pos_Estimate and Vel_Estimate into the buffer
-        std::memcpy(buffer, &encoder_Pos_Estimate, sizeof(encoder_Pos_Estimate));
-        std::memcpy(buffer + sizeof(encoder_Pos_Estimate), &encoder_Vel_Estimate, sizeof(encoder_Vel_Estimate));
-    }
-
-    // Deserialize from byte array
-    static SystemData deserialize(const std::vector<uint8_t>& buffer) {
-        SystemData msg;
-
-        // Deserialize Pos_Estimate and Vel_Estimate from the buffer
-        std::memcpy(&msg.encoder_Pos_Estimate, buffer.data(), sizeof(encoder_Pos_Estimate));
-        std::memcpy(&msg.encoder_Vel_Estimate, buffer.data() + sizeof(encoder_Pos_Estimate), sizeof(encoder_Vel_Estimate));
-
-        return msg;
-    }
-};
+template<typename Func, typename Tuple>
+void odriveCommandWrapper(Func&& f, Tuple&& args) {
+    std::apply(std::forward<Func>(f), std::forward<Tuple>(args));
+}
 
 // Calculate CRC-8 checksum
 // CRC-8 polynomial (Dallas/Maxim)
@@ -144,11 +96,8 @@ void printIPAddress()
     printf("    DNS          = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
 }
 
-SystemCommand sys_command_;
-
-// Instantiate ODrive objects
-ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
-ODriveCAN* odrives[] = {&odrv0}; // Make sure all ODriveCAN instances are accounted for here
+std::unique_ptr<CommandBase> sys_command_;
+std::unique_ptr<SystemData> sys_data_;
 
 struct ODriveUserData {
   Heartbeat_msg_t last_heartbeat;
@@ -170,8 +119,10 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
 // Called every time a feedback message arrives from the ODrive
 void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
-  odrv_user_data->last_feedback = msg;
+  //odrv_user_data->last_feedback = msg;
   odrv_user_data->received_feedback = true;
+  sys_data_->encoder_Pos_Estimate = msg.Pos_Estimate;
+  sys_data_->encoder_Vel_Estimate = msg.Vel_Estimate;
 }
 
 // Called for every message that arrives on the CAN bus
@@ -198,6 +149,7 @@ void setup()
     };
 
     // Register callbacks for the heartbeat and encoder feedback messages
+    sys_data_ = std::make_unique<SystemData>();
     odrv0.onFeedback(onFeedback, &odrv0_user_data);
     odrv0.onStatus(onHeartbeat, &odrv0_user_data);
 
@@ -312,18 +264,39 @@ void loop()
 {
     pumpEvents(can2); // This is required on some platforms to handle incoming feedback CAN messages
 
-    receiveUDPPacket(); // receive UDP message from UP to Teensy
+    parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
     if (!first_packet_recv)
         return;
 
-    sendCANCommandToODrive(); // send CAN command from Teensy to ODrive Pro
+    unsigned long start_time_mcs = micros();
     sendUDPPacket(); // send UDP message from Teensy to UP
+    CAN_udp_msg_send_time_mcs = micros() - start_time_mcs;
+
+    unsigned long current_time_mcs = micros();
+    unsigned long loop_duration_mcs = current_time_mcs - prev_time_mcs;
+    prev_time_mcs = current_time_mcs;
+    Serial.println("[CAN loop timing]");
+    Serial.print("frequency: ");
+    Serial.print(1000000/loop_duration_mcs);
+    Serial.print(" Hz | ");
+    Serial.print("parse time: ");
+    Serial.print(CAN_udp_msg_parse_time_mcs);
+    Serial.print(" mcs | ");
+    Serial.print("process time: ");
+    Serial.print(CAN_udp_msg_process_time_mcs);
+    Serial.print(" mcs | ");
+    Serial.print("send time: ");
+    Serial.print(CAN_udp_msg_send_time_mcs);
+    Serial.println(" mcs");
 }
 
-void receiveUDPPacket()
+void parseAndProcessUDPPacket()
 {
+    unsigned long start_time_mcs = micros();
     int size = udp.parsePacket();
+    CAN_udp_msg_parse_time_mcs = micros() - start_time_mcs;
 
+    start_time_mcs = micros();
     if (size >= 0)
     {
         const uint8_t *data = udp.data();
@@ -331,52 +304,81 @@ void receiveUDPPacket()
         if (!first_packet_recv)
             first_packet_recv = true;
 
-        // Extract the payload data
-        std::vector<uint8_t> payload(data, data+sizeof(float)*2);
+        const uint8_t msg_buffer = *data;
+        MsgType type = static_cast<MsgType>(msg_buffer);
+        //Serial.println(static_cast<uint8_t>(type));
 
-        // Calculate CRC-8 for the payload
-        uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
-
-        if (size == sizeof(float)*2+1)
-            {
-                const uint8_t received_crc = data[sizeof(float)*2];
-
-                if (received_crc == calculated_crc)
-                {
-                    // CRC check passed, process the data
-                    sys_command_ = SystemCommand::deserialize(payload);
-                }
-                else
-                {
-                    // CRC check failed, discard the data
-                    printf("CRC check failed\n");
-                    printf("Received CRC: %02X\n", received_crc);
-                    printf("Calculated CRC: %02X\n", calculated_crc);
-                }
+        switch (type) {
+        case MsgType::PositionCommand: {
+            //Serial.println("MsgType::PositionCommand");
+            //Serial.print("MsgType::Position ");
+            PositionCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {
+            if (true) {
+              cmd.deserialize(payload);
+              //return std::make_unique<PositionCommand>(cmd);
+              //cmd.printValue();
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv0.setPosition(p, v_ff, t_ff); },
+                    cmd.getCommandValue());
             }
-            else
-            {
-                printf("Invalid packet size\n");
+            break;
+        }
+        case MsgType::VelocityCommand: {
+            //Serial.print("MsgType::VelocityCommand ");
+            //Serial.println(static_cast<uint8_t>(type));
+            VelocityCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {
+            if (true) {
+              cmd.deserialize(payload);
+              //cmd.printValue();
+              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv0.setVelocity(v, t_ff); },
+                    cmd.getCommandValue());
             }
+            break;
+        }
+        case MsgType::TorqueCommand: {
+            //Serial.print("MsgType::Torque ");
+            //Serial.println(static_cast<uint8_t>(type));
+            TorqueCommand cmd;
+            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Calculate CRC-8 for the payload
+            //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
+            //const uint8_t received_crc = data[cmd.dataSize()+1];
+            //if (received_crc == calculated_crc) {  
+            if (true) {
+              cmd.deserialize(payload);
+              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv0.setTorque(t); },
+                      cmd.getCommandValue());
+            }
+            break;
+        }
+        default: {
+            std::cerr << "Unknown MsgType!\n";
+            break;
+        }
+        }
     }
-}
-
-void sendCANCommandToODrive()
-{
-    //printf("sys_command_ position: %.2f\n", sys_command_.position);
-    //printf("sys_command_ vel_ff  : %.2f\n", sys_command_.velocity_ff);
-    odrv0.setPosition(sys_command_.position, sys_command_.velocity_ff);
+    CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
 }
 
 void sendUDPPacket()
 {
     if (odrv0_user_data.received_feedback) {
-      Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
+      //Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
       odrv0_user_data.received_feedback = false;
 
-      SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
-      uint8_t buffer[sizeof(float) * 2];
-      packet.serialize(buffer);
+      //SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
+      uint8_t buffer[sys_data_->dataSize()];
+      //packet.serialize(buffer);
+      sys_data_->writeToBuffer(buffer);
 
       if (!udp.send("10.176.32.14", PC_udp_port_listening, buffer, sizeof(buffer)))
       {
