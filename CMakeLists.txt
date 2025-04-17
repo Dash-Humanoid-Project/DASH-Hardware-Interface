@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.10)
 project(dash_hardware_interface)
 
+option(ENABLE_TIME_BENCHMARK OFF)
+
+message(ENABLE_TIME_BENCHMARK="${ENABLE_TIME_BENCHMARK}")
+
+if(${ENABLE_TIME_BENCHMARK})
+    add_definitions(-DENABLE_TIME_BENCHMARK)
+endif()
+
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)

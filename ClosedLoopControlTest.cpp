@@ -79,7 +79,9 @@ public:
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {
                     pc_[id]->setPositionCommand(cmd_ptr);
+#ifndef ENABLE_TIME_BENCHMARK
                     pc_[id]->sys_data_->printValue();
+#endif
                 }
             }
         }
@@ -95,7 +97,9 @@ public:
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {
                     pc_[id]->setVelocityCommand(vcmd_ptr);
+#ifndef ENABLE_TIME_BENCHMARK
                     pc_[id]->sys_data_->printValue();
+#endif
                 }
             }
         }
@@ -111,7 +115,9 @@ public:
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {
                     pc_[id]->setTorqueCommand(tcmd_ptr);
+#ifndef ENABLE_TIME_BENCHMARK
                     pc_[id]->sys_data_->printValue();
+#endif
                 }
             }
         }

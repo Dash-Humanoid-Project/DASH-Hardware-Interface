@@ -80,10 +80,12 @@ void UPXtreme::start()
 			handleUDPPacket(client_endpoint, received_data);
 			std::this_thread::sleep_for(std::chrono::microseconds(200));
 
+#ifdef ENABLE_TIME_BENCHMARK
             auto current_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> elapsed_time = current_time - UDP_in_prev_time;
             UDP_in_prev_time = current_time;
-            //std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+#endif
             }
 	});
 
@@ -104,10 +106,12 @@ void UPXtreme::start()
 
             std::this_thread::sleep_for(std::chrono::microseconds(200));
 
+#ifdef ENABLE_TIME_BENCHMARK
             auto current_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> elapsed_time = current_time - UDP_out_prev_time;
             UDP_out_prev_time = current_time;
-            //std::cout << "[UDP send] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            std::cout << "[UDP send] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+#endif
         }
     });
 }
