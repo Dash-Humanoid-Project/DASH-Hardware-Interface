@@ -8,6 +8,7 @@
 #include "Command.h"
 #include "DataContainer.h"
 #include "Param.h"
+#include "Config.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 
@@ -386,6 +387,18 @@ void parseAndProcessUDPPacket()
         //Serial.println(static_cast<uint8_t>(type));
 
         switch (type) {
+        case MsgType::Config: {
+            Config config;
+            std::vector<uint8_t> payload(data+1, data+config.dataSize()+2); // w/out byte corresponding to type
+            config.deserialize(payload);
+            config.printValue();
+            odrv0.setEndpoint(162, config.dc_bus_overvoltage_trip_lvl);
+            odrv0.setEndpoint(161, config.dc_bus_undervoltage_trip_lvl);
+            odrv0.setEndpoint(163, config.dc_max_positive_current);
+            odrv0.setEndpoint(164, config.dc_max_negative_current);
+            odrv0.setEndpoint(296, config.motor_type);
+            break;
+        }
         case MsgType::PositionCommand: {
             //Serial.println("MsgType::PositionCommand");
             //Serial.print("MsgType::Position ");

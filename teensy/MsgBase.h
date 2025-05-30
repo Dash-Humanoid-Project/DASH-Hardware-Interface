@@ -6,10 +6,11 @@
 #include <memory>
 
 enum class MsgType : uint8_t {
-    PositionCommand = 0x01,
-    VelocityCommand = 0x02,
-    TorqueCommand   = 0x03,
-    SystemData      = 0x04,
+    Config          = 0x01,
+    PositionCommand = 0x02,
+    VelocityCommand = 0x03,
+    TorqueCommand   = 0x04,
+    SystemData      = 0x05,
 };
 
 struct MsgBase {

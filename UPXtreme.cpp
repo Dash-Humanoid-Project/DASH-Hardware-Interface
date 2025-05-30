@@ -70,6 +70,47 @@ UPXtreme::UPXtreme(const std::string &teensy_IP, const std::string &interface, i
 
 void UPXtreme::start()
 {
+    /* Setup
+    *   config = value (type, id)
+        odrv.config.dc_bus_overvoltage_trip_level = 26 (float, 162)
+        odrv.config.dc_bus_undervoltage_trip_level = 22 (float, 161)
+        odrv.config.dc_max_positive_current = math.inf (float, 163)
+        odrv.config.dc_max_negative_current = -math.inf (float, 164)
+        odrv.axis0.config.motor.motor_type = MotorType.HIGH_CURRENT (uint8, 296)
+        odrv.axis0.config.motor.pole_pairs = 21 (uint32, 297)
+        odrv.axis0.config.motor.torque_constant = 0.13783333333333334 (float, 302)
+        odrv.axis0.config.motor.current_soft_max = 23 (float, 204)
+        odrv.axis0.config.motor.current_hard_max = 39.9 (float, 205)
+        odrv.axis0.config.motor.calibration_current = 10 (float, 313)
+        odrv.axis0.config.motor.resistance_calib_max_voltage = 2 (float, 314)
+        odrv.axis0.config.calibration_lockin.current = 10 (float, 249)
+        odrv.axis0.motor.motor_thermistor.config.enabled = False (bool, 602)
+        odrv.axis0.controller.config.control_mode = ControlMode.POSITION_CONTROL (uint8, 378)
+        odrv.axis0.controller.config.input_mode = InputMode.PASSTHROUGH (uint8, 379)
+        odrv.axis0.controller.config.vel_limit = 10 (float, 384)
+        odrv.axis0.controller.config.vel_limit_tolerance = 1.2 (float, 385)
+        odrv.axis0.config.torque_soft_min = -0.4 (float, 294)
+        odrv.axis0.config.torque_soft_max = 0.4 (float, 295)
+        odrv.can.config.protocol = Protocol.SIMPLE (uint8, 117)
+        odrv.can.config.baud_rate = 250000 (uint32, 114)
+        odrv.axis0.config.can.node_id = 0 (uint32, 272)
+        odrv.axis0.config.can.heartbeat_msg_rate_ms = 100 (uint32, 274)
+        odrv.axis0.config.can.encoder_msg_rate_ms = 10 (uint32, 275)
+        odrv.axis0.config.can.iq_msg_rate_ms = 10 (uint32, 276)
+        odrv.axis0.config.can.torques_msg_rate_ms = 10 (uint32, 280)
+        odrv.axis0.config.can.error_msg_rate_ms = 10 (uint32, 277)
+        odrv.axis0.config.can.temperature_msg_rate_ms = 10 (uint32, 278)
+        odrv.axis0.config.can.bus_voltage_msg_rate_ms = 10 (uint32, 279)
+        odrv.axis0.config.enable_watchdog = False (bool, 244)
+        odrv.axis0.config.load_encoder = EncoderId.RS485_ENCODER0 (uint8, 284)
+        odrv.axis0.config.commutation_encoder = EncoderId.RS485_ENCODER0 (uint8, 285)
+        odrv.rs485_encoder_group0.config.mode = Rs485EncoderMode.ODRIVE_OA1 (uint8, 614)
+        odrv.config.enable_uart_a = False (bool, 156)
+    */
+    Config setup_config;
+    std::vector<uint8_t> serialized_config = setup_config.serializeWithHeader();
+    sendToTeensy(serialized_config, serialized_config.size());
+
     // Start the server in a separate thread
     receive_thread = std::thread([&]()
     {

@@ -10,6 +10,7 @@
 #include "SystemConfig.h"
 #include "Command.h"
 #include "DataContainer.h"
+#include "Config.h"
 #include "Utils.h"
 #include "Param.h"
 
