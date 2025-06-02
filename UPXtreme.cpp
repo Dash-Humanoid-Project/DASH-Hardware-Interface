@@ -72,7 +72,13 @@ void UPXtreme::start()
     {
         static std::chrono::time_point<std::chrono::steady_clock> UDP_in_prev_time = std::chrono::steady_clock::now();
 
-		while (true) {
+        int i = 0;
+        int measurement_count = 100;
+        std::vector<float> receive_time_log(measurement_count);
+        std::vector<float> receive_frequency_log(measurement_count);
+        
+
+		while (i < measurment_count) {
 			std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
 			asio::ip::udp::endpoint client_endpoint;
 			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
@@ -85,6 +91,9 @@ void UPXtreme::start()
             std::chrono::duration<double> elapsed_time = current_time - UDP_in_prev_time;
             UDP_in_prev_time = current_time;
             std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            receive_time_log[i] = current_time;
+            receive_frequency_log[i] = 1. / elapsed_time.count();
+            i++;
 #endif
             }
 	});
