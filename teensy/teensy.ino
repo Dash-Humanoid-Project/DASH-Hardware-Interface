@@ -11,6 +11,7 @@
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 #define ODRV0_NODE_ID 0
 #define ODRV1_NODE_ID 1
+#define ODRV2_NODE_ID 2
 
 #define NUM_TX_MAILBOXES 32
 #define NUM_RX_MAILBOXES 32
@@ -18,6 +19,7 @@ using namespace qindesign::network;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
+FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
 IPAddress staticIP{10, 176, 32, 33};
 IPAddress subnetMask{255, 255, 255, 0};
@@ -57,7 +59,8 @@ unsigned long prev_time_mcs = 0.;
 // Instantiate ODrive objects // need to be declared early for fromBuffer()
 ODriveCAN odrv0(wrap_can_intf(can2), ODRV0_NODE_ID); // Standard CAN message ID
 ODriveCAN odrv1(wrap_can_intf(can1), ODRV1_NODE_ID);
-ODriveCAN* odrives[] = {&odrv0, &odrv1}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN odrv2(wrap_can_intf(can3), ODRV2_NODE_ID);
+ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
 
 template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
@@ -119,6 +122,7 @@ struct ODriveUserData {
 // Keep some application-specific user data for every ODrive.
 ODriveUserData odrv0_user_data(0);
 ODriveUserData odrv1_user_data(1);
+ODriveUserData odrv2_user_data(2);
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -182,6 +186,8 @@ void setup()
     odrv0.onStatus(onHeartbeat, &odrv0_user_data);
     odrv1.onFeedback(onFeedback, &odrv1_user_data);
     odrv1.onStatus(onHeartbeat, &odrv1_user_data);
+    odrv2.onFeedback(onFeedback, &odrv2_user_data);
+    odrv2.onStatus(onHeartbeat, &odrv2_user_data);
 
     // Configure and initialize the CAN bus interface. This function depends on
     // your hardware and the CAN stack that you're using.
@@ -199,6 +205,11 @@ void setup()
       pumpEvents(can1);
       delay(100);
     }
+    while (!odrv2_user_data.received_heartbeat) {
+      pumpEvents(can3);
+      delay(100);
+    }
+
 
     Serial.println("found ODrives");
 
@@ -211,6 +222,10 @@ void setup()
     }
     if (!odrv1.request(vbus, 1)) {
       Serial.println("odrv1 vbus request failed!");
+      while (true); // spin indefinitely
+    }
+    if (!odrv2.request(vbus, 1)) {
+      Serial.println("odrv2 vbus request failed!");
       while (true); // spin indefinitely
     }
 
@@ -256,8 +271,27 @@ void setup()
       }
     }
     Serial.println("Enabled closed loop control for odrv1");
+    while (odrv2_user_data.last_heartbeat.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
+      odrv2.clearErrors();
+      delay(1);
+      odrv2.setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
+
+      // Pump events for 150ms. This delay is needed for two reasons;
+      // 1. If there is an error condition, such as missing DC power, the ODrive might
+      //    briefly attempt to enter CLOSED_LOOP_CONTROL state, so we can't rely
+      //    on the first heartbeat response, so we want to receive at least two
+      //    heartbeats (100ms default interval).
+      // 2. If the bus is congested, the setState command won't get through
+      //    immediately but can be delayed.
+      for (int i = 0; i < 15; ++i) {
+        delay(10);
+        pumpEvents(can3);
+      }
+    }
+    Serial.println("Enabled closed loop control for odrv2");
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
+
 }
 
 bool setupEthernetWithStaticIP()
@@ -324,6 +358,19 @@ bool setupCAN()
     can2.distribute();
     can2.setClock(CLK_60MHz);
     // can2.mailboxStatus();
+
+    can3.begin();
+    can3.setBaudRate(CAN_BAUDRATE);
+    can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    can3.setMBFilter(MB1, 0, 0x0);
+    can3.enhanceFilter(MB1);
+    can3.enableMBInterrupts();
+    can3.onReceive(onCanMessage);
+
+    can3.distribute();
+    can3.setClock(CLK_60MHz);
+    // can3.mailboxStatus();
+
     return true;
 }
 
@@ -395,6 +442,9 @@ void parseAndProcessUDPPacket()
                     cmd.getCommandValue());
               odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv1.setPosition(p, v_ff, t_ff); },
                     cmd.getCommandValue());
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv2.setPosition(p, v_ff, t_ff); },
+                    cmd.getCommandValue());
+
             }
             break;
         }
@@ -414,6 +464,9 @@ void parseAndProcessUDPPacket()
                     cmd.getCommandValue());
               odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv1.setVelocity(v, t_ff); },
                     cmd.getCommandValue());
+              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv2.setVelocity(v, t_ff); },
+                    cmd.getCommandValue());
+
             }
             break;
         }
@@ -432,6 +485,9 @@ void parseAndProcessUDPPacket()
                       cmd.getCommandValue());
               odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv1.setTorque(t); },
                       cmd.getCommandValue());
+              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv2.setTorque(t); },
+                      cmd.getCommandValue());
+
             }
             break;
         }
@@ -446,10 +502,11 @@ void parseAndProcessUDPPacket()
 
 void sendUDPPacket()
 {
-    if (odrv0_user_data.received_feedback && odrv1_user_data.received_feedback) {
+    if (odrv0_user_data.received_feedback && odrv1_user_data.received_feedback && odrv2_user_data.received_feedback) {
       //Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
       odrv0_user_data.received_feedback = false;
       odrv1_user_data.received_feedback = false;
+      odrv2_user_data.received_feedback = false;
 
       //SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
       uint8_t buffer[sys_data_->dataSize()];

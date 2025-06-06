@@ -8,23 +8,27 @@
 struct DataBase : public MsgBase {};
 
 struct SystemData : public DataBase {
-    float encoder_Pos_Estimate[2];  // [rev]
-    float encoder_Vel_Estimate[2];  // [rev/s]
+    float encoder_Pos_Estimate[3];  // [rev]
+    float encoder_Vel_Estimate[3];  // [rev/s]
 
     // Constructor to initialize default values
     SystemData() {
         encoder_Pos_Estimate[0] = 0.0f;
         encoder_Pos_Estimate[1] = 0.0f;
+        encoder_Pos_Estimate[2] = 0.0f;
         encoder_Vel_Estimate[0] = 0.0f;
         encoder_Vel_Estimate[1] = 0.0f;
+        encoder_Vel_Estimate[2] = 0.0f;
     }
 
     // Constructor from input arguments
-    SystemData(float pos_estimate[2], float vel_estimate[2]) {
+    SystemData(float pos_estimate[3], float vel_estimate[3]) {
         encoder_Pos_Estimate[0] = pos_estimate[0];
         encoder_Pos_Estimate[1] = pos_estimate[1];
+        encoder_Pos_Estimate[2] = pos_estimate[2];
         encoder_Vel_Estimate[0] = vel_estimate[0];
         encoder_Vel_Estimate[1] = vel_estimate[1];
+        encoder_Vel_Estimate[2] = vel_estimate[2];
     }
 
     size_t dataSize() const override {
@@ -46,6 +50,6 @@ struct SystemData : public DataBase {
     }
 
     void printValue() override {
-        std::cout << "encoder_Pos_Estimate: [" << encoder_Pos_Estimate[0] << "," << encoder_Pos_Estimate[1] << "] | encoder_Vel_Estimate: [" << encoder_Vel_Estimate[0] << "," << encoder_Vel_Estimate[1] << "]" << std::endl;
+        std::cout << "encoder_Pos_Estimate: [" << encoder_Pos_Estimate[0] << "," << encoder_Pos_Estimate[1] << "," << encoder_Pos_Estimate[2] << "] | encoder_Vel_Estimate: [" << encoder_Vel_Estimate[0] << "," << encoder_Vel_Estimate[1] << "," << encoder_Vel_Estimate[2] << "]" << std::endl;
     }
 };
