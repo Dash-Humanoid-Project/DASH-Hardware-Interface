@@ -62,7 +62,10 @@ UPXtreme::UPXtreme(const std::string &teensy_IP, const std::string &interface, i
 	std::cout << "send_socket    bound to " << send_socket.local_endpoint() << std::endl;
     std::cout << "receive_socket bound to " << receive_socket.local_endpoint() << std::endl;
 
-    sys_data_ = std::make_shared<SystemData<N_ODRIVE>>();
+    sys_data_ = std::make_shared<SystemDataContainer>();
+    sys_data_->add(SystemData<N_ODRIVE_CAN1>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN2>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 }
 
 void UPXtreme::start()
