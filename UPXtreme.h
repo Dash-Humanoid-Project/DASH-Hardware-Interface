@@ -12,6 +12,7 @@
 #include "Data.h"
 #include "Utils.h"
 
+#define N_ODRIVE 3
 
 using asio::ip::udp;
 
@@ -34,7 +35,7 @@ private:
 public:
 	// TODO(@nicholasadr): move to private
     std::shared_ptr<CommandBase> sys_command_; //
-    std::shared_ptr<SystemData> sys_data_;
+    std::shared_ptr<SystemData<N_ODRIVE>> sys_data_;
     std::mutex command_mutex;
 
     UPXtreme(const std::string &ip, const std::string &interface, int port, int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
