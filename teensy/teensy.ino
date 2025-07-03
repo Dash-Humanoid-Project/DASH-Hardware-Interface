@@ -56,10 +56,14 @@ unsigned long CAN_udp_msg_send_time_mcs = 0.;
 unsigned long CAN_total_duration_mcs = 0.;
 unsigned long prev_time_mcs = 0.;
 
+#define ODRV0_CAN can1
+#define ODRV1_CAN can1
+#define ODRV2_CAN can1
+
 // Instantiate ODrive objects // need to be declared early for fromBuffer()
-ODriveCAN odrv0(wrap_can_intf(can1), ODRV0_NODE_ID); // Standard CAN message ID
-ODriveCAN odrv1(wrap_can_intf(can1), ODRV1_NODE_ID);
-ODriveCAN odrv2(wrap_can_intf(can1), ODRV2_NODE_ID);
+ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_NODE_ID); // Standard CAN message ID
+ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_NODE_ID);
+ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_NODE_ID);
 ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
 
 template<typename Func, typename Tuple>
@@ -193,20 +197,20 @@ void setup()
 
     Serial.print("Found ODrives: ");
     while (!odrv0_user_data.received_heartbeat) {
-      pumpEvents(can1);
+      pumpEvents(ODRV0_CAN);
       delay(100);
     }
 
     Serial.print(" [odrv0]");
 
     while (!odrv1_user_data.received_heartbeat) {
-      pumpEvents(can1);
+      pumpEvents(ODRV1_CAN);
       delay(100);
     }
     Serial.print(" [odrv1]");
 
     while (!odrv2_user_data.received_heartbeat) {
-      pumpEvents(can1);
+      pumpEvents(ODRV2_CAN);
       delay(100);
     }
     Serial.println(" [odrv2]");
@@ -243,7 +247,7 @@ void setup()
       //    immediately but can be delayed.
       for (int i = 0; i < 15; ++i) {
         delay(10);
-        pumpEvents(can1);
+        pumpEvents(ODRV0_CAN);
       }
     }
     Serial.print(" [odrv0]");
@@ -262,7 +266,7 @@ void setup()
       //    immediately but can be delayed.
       for (int i = 0; i < 15; ++i) {
         delay(10);
-        pumpEvents(can1);
+        pumpEvents(ODRV1_CAN);
       }
     }
     Serial.print(" [odrv1]");
@@ -281,7 +285,7 @@ void setup()
       //    immediately but can be delayed.
       for (int i = 0; i < 15; ++i) {
         delay(10);
-        pumpEvents(can1);
+        pumpEvents(ODRV2_CAN);
       }
     }
     Serial.println(" [odrv2]");
