@@ -13,6 +13,8 @@
 #define ODRV1_NODE_ID 1
 #define ODRV2_NODE_ID 2
 
+#define N_ODRIVE 3
+
 #define NUM_TX_MAILBOXES 32
 #define NUM_RX_MAILBOXES 32
 using namespace qindesign::network;
@@ -106,7 +108,7 @@ void printIPAddress()
 }
 
 std::unique_ptr<CommandBase> sys_command_;
-std::unique_ptr<SystemData> sys_data_;
+std::unique_ptr<SystemData<N_ODRIVE>> sys_data_;
 
 struct ODriveUserData {
 

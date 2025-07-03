@@ -7,32 +7,19 @@
 
 struct DataBase : public MsgBase {};
 
+template <size_t N>
 struct SystemData : public DataBase {
-    float encoder_Pos_Estimate[3];  // [rev]
-    float encoder_Vel_Estimate[3];  // [rev/s]
+    std::array<float, N> encoder_Pos_Estimate{};  // [rev]
+    std::array<float, N> encoder_Vel_Estimate{};  // [rev/s]
 
-    // Constructor to initialize default values
-    SystemData() {
-        encoder_Pos_Estimate[0] = 0.0f;
-        encoder_Pos_Estimate[1] = 0.0f;
-        encoder_Pos_Estimate[2] = 0.0f;
-        encoder_Vel_Estimate[0] = 0.0f;
-        encoder_Vel_Estimate[1] = 0.0f;
-        encoder_Vel_Estimate[2] = 0.0f;
-    }
+    SystemData() = default;
 
     // Constructor from input arguments
-    SystemData(float pos_estimate[3], float vel_estimate[3]) {
-        encoder_Pos_Estimate[0] = pos_estimate[0];
-        encoder_Pos_Estimate[1] = pos_estimate[1];
-        encoder_Pos_Estimate[2] = pos_estimate[2];
-        encoder_Vel_Estimate[0] = vel_estimate[0];
-        encoder_Vel_Estimate[1] = vel_estimate[1];
-        encoder_Vel_Estimate[2] = vel_estimate[2];
-    }
+    SystemData(const std::array<float, N>& pos, const std::array<float, N>& vel)
+        : encoder_Pos_Estimate(pos), encoder_Vel_Estimate(vel) {}
 
     size_t dataSize() const override {
-        return sizeof(encoder_Pos_Estimate) + sizeof(encoder_Vel_Estimate);
+        return sizeof(float) * N * 2;
     }
 
     MsgType getType() const override {
@@ -40,16 +27,20 @@ struct SystemData : public DataBase {
     }
 
     void writeToBuffer(uint8_t* buffer) const {
-        std::memcpy(buffer, &encoder_Pos_Estimate, sizeof(encoder_Pos_Estimate));
-        std::memcpy(buffer + sizeof(encoder_Pos_Estimate), &encoder_Vel_Estimate, sizeof(encoder_Vel_Estimate));
+        std::memcpy(buffer, encoder_Pos_Estimate.data(), sizeof(float) * N);
+        std::memcpy(buffer + sizeof(float) * N, encoder_Vel_Estimate.data(), sizeof(float) * N);
     }
 
     void readFromBuffer(const uint8_t* buffer) {
-        std::memcpy(&encoder_Pos_Estimate, buffer, sizeof(encoder_Pos_Estimate));
-        std::memcpy(&encoder_Vel_Estimate, buffer + sizeof(encoder_Pos_Estimate), sizeof(encoder_Vel_Estimate));
+        std::memcpy(encoder_Pos_Estimate.data(), buffer, sizeof(float) * N);
+        std::memcpy(encoder_Vel_Estimate.data(), buffer + sizeof(float) * N, sizeof(float) * N);
     }
 
     void printValue() override {
-        std::cout << "encoder_Pos_Estimate: [" << encoder_Pos_Estimate[0] << "," << encoder_Pos_Estimate[1] << "," << encoder_Pos_Estimate[2] << "] | encoder_Vel_Estimate: [" << encoder_Vel_Estimate[0] << "," << encoder_Vel_Estimate[1] << "," << encoder_Vel_Estimate[2] << "]" << std::endl;
+        std::cout << "encoder_Pos_Estimate: [";
+        for (size_t i = 0; i < N; ++i) std::cout << encoder_Pos_Estimate[i] << (i < N-1 ? "," : "");
+        std::cout << "] | encoder_Vel_Estimate: [";
+        for (size_t i = 0; i < N; ++i) std::cout << encoder_Vel_Estimate[i] << (i < N-1 ? "," : "");
+        std::cout << "]" << std::endl;
     }
 };
