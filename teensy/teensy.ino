@@ -6,14 +6,10 @@
 #include "ODriveFlexCAN.hpp"
 #include <QNEthernet.h>
 #include "Command.h"
-#include "Data.h"
+#include "DataContainer.h"
+#include "Param.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
-#define ODRV0_NODE_ID 0
-#define ODRV1_NODE_ID 1
-#define ODRV2_NODE_ID 2
-
-#define N_ODRIVE 3
 
 #define NUM_TX_MAILBOXES 32
 #define NUM_RX_MAILBOXES 32
@@ -58,14 +54,10 @@ unsigned long CAN_udp_msg_send_time_mcs = 0.;
 unsigned long CAN_total_duration_mcs = 0.;
 unsigned long prev_time_mcs = 0.;
 
-#define ODRV0_CAN can1
-#define ODRV1_CAN can1
-#define ODRV2_CAN can1
-
 // Instantiate ODrive objects // need to be declared early for fromBuffer()
-ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_NODE_ID); // Standard CAN message ID
-ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_NODE_ID);
-ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_NODE_ID);
+ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID); // Standard CAN message ID
+ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
+ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
 ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
 
 template<typename Func, typename Tuple>
@@ -108,27 +100,28 @@ void printIPAddress()
 }
 
 std::unique_ptr<CommandBase> sys_command_;
-std::unique_ptr<SystemData<N_ODRIVE>> sys_data_;
+std::unique_ptr<SystemDataContainer> sys_data_;
 
 struct ODriveUserData {
 
-  ODriveUserData(int idx)
+  ODriveUserData(int bus_idx, int node_idx)
   {
-    idx_ = idx;
+    bus_idx_ = bus_idx;
+    node_idx_ = node_idx;
   }
 
   Heartbeat_msg_t last_heartbeat;
   bool received_heartbeat = false;
   Get_Encoder_Estimates_msg_t last_feedback;
   bool received_feedback = false;
-  int idx_;
-
+  int bus_idx_;
+  int node_idx_;
 };
 
 // Keep some application-specific user data for every ODrive.
-ODriveUserData odrv0_user_data(0);
-ODriveUserData odrv1_user_data(1);
-ODriveUserData odrv2_user_data(2);
+ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_NODE_ID);
+ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_NODE_ID);
+ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_NODE_ID);
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -153,8 +146,8 @@ void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
   sys_data_->encoder_Vel_Estimate[idx] = msg.Vel_Estimate;*/
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
   odrv_user_data->received_feedback = true;
-  sys_data_->encoder_Pos_Estimate[odrv_user_data->idx_] = msg.Pos_Estimate;
-  sys_data_->encoder_Vel_Estimate[odrv_user_data->idx_] = msg.Vel_Estimate;
+  sys_data_[odrv_user_data->bus_idx_]->encoder_Pos_Estimate[odrv_user_data->node_idx_] = msg.Pos_Estimate;
+  sys_data_[odrv_user_data->bus_idx_]->encoder_Vel_Estimate[odrv_user_data->node_idx_] = msg.Vel_Estimate;
 }
 
 // Called for every message that arrives on the CAN bus
@@ -181,8 +174,13 @@ void setup()
     };
     delay(2000); // wait for Ethernet confirmation
 
+    // Intiialize SystemDataContainer taking into account number of ODrives per CAN bus
+    sys_data_ = std::make_unique<SystemDataContainer>();
+    sys_data_->add(SystemData<N_ODRIVE_CAN1>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN2>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+
     // Register callbacks for the heartbeat and encoder feedback messages
-    sys_data_ = std::make_unique<SystemData>();
     odrv0.onFeedback(onFeedback, &odrv0_user_data);
     odrv0.onStatus(onHeartbeat, &odrv0_user_data);
     odrv1.onFeedback(onFeedback, &odrv1_user_data);
@@ -512,7 +510,7 @@ void sendUDPPacket()
       //SystemData packet(feedback.Pos_Estimate, feedback.Vel_Estimate);
       uint8_t buffer[sys_data_->dataSize()];
       //packet.serialize(buffer);
-      sys_data_->writeToBuffer(buffer);
+      sys_data_->serialize(buffer);
 
       if (!udp.send("10.176.32.14", PC_udp_port_listening, buffer, sizeof(buffer)))
       {

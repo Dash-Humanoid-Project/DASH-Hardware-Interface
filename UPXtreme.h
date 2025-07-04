@@ -11,11 +11,8 @@
 #include "Command.h"
 #include "DataContainer.h"
 #include "Utils.h"
+#include "Param.h"
 
-#define N_CAN 3
-#define N_ODRIVE_CAN1 3
-#define N_ODRIVE_CAN2 0
-#define N_ODRIVE_CAN3 0
 
 using asio::ip::udp;
 
