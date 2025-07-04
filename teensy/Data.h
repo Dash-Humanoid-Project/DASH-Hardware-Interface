@@ -51,10 +51,20 @@ struct SystemData : public DataBase {
     }
 
     float getPosEstimateAtNode(const int& idx) const override {
+        if (idx < 0 || idx >= static_cast<int>(N)) {
+            std::cout << "[ERROR] idx out of bounds: " << idx << " (N=" << N << ")\n";
+            return -999.0f;
+        }
+
         return encoder_Pos_Estimate.at(idx);
     }
 
     float getVelEstimateAtNode(const int& idx) const override {
+        if (idx < 0 || idx >= static_cast<int>(N)) {
+            std::cout << "[ERROR] idx out of bounds: " << idx << " (N=" << N << ")\n";
+            return -999.0f;
+        }
+
         return encoder_Vel_Estimate.at(idx);
     }
 
