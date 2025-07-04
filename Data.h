@@ -5,7 +5,13 @@
 #include "MsgBase.h"
 
 
-struct DataBase : public MsgBase {};
+struct DataBase : public MsgBase {
+    virtual void setPosEstimateAtNode(const int& idx, const float& pos) = 0;
+    virtual void setVelEstimateAtNode(const int& idx, const float& vel) = 0;
+
+    virtual float getPosEstimateAtNode(const int& idx) const = 0;
+    virtual float getVelEstimateAtNode(const int& idx) const = 0;
+};
 
 template <size_t N>
 struct SystemData : public DataBase {
@@ -34,6 +40,22 @@ struct SystemData : public DataBase {
     void readFromBuffer(const uint8_t* buffer) {
         std::memcpy(encoder_Pos_Estimate.data(), buffer, sizeof(float) * N);
         std::memcpy(encoder_Vel_Estimate.data(), buffer + sizeof(float) * N, sizeof(float) * N);
+    }
+
+    void setPosEstimateAtNode(const int& idx, const float& pos) override {
+        encoder_Pos_Estimate.at(idx) = pos;
+    }
+
+    void setVelEstimateAtNode(const int& idx, const float& vel) override {
+        encoder_Vel_Estimate.at(idx) = vel; 
+    }
+
+    float getPosEstimateAtNode(const int& idx) const override {
+        return encoder_Pos_Estimate.at(idx);
+    }
+
+    float getVelEstimateAtNode(const int& idx) const override {
+        return encoder_Vel_Estimate.at(idx);
     }
 
     void printValue() override {

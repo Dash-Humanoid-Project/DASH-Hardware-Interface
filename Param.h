@@ -5,9 +5,9 @@
 #define N_ODRIVE_CAN2 0
 #define N_ODRIVE_CAN3 0
 
-#define ODRV0_CAN_BUS_ID 1
-#define ODRV1_CAN_BUS_ID 1
-#define ODRV2_CAN_BUS_ID 1
+#define ODRV0_CAN_BUS_ID 0
+#define ODRV1_CAN_BUS_ID 0
+#define ODRV2_CAN_BUS_ID 0
 
 #define ODRV0_CAN_NODE_ID 0
 #define ODRV1_CAN_NODE_ID 1
