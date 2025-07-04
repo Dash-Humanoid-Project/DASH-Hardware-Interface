@@ -119,9 +119,9 @@ struct ODriveUserData {
 };
 
 // Keep some application-specific user data for every ODrive.
-ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_NODE_ID);
-ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_NODE_ID);
-ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_NODE_ID);
+ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID);
+ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID);
+ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID);
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
