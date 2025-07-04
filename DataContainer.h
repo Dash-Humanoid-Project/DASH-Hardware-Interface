@@ -46,9 +46,8 @@ public:
     }
 
     // Serialize data_list into a buffer
-    std::vector<uint8_t> serialize() const
+    void serialize(std::vector<uint8_t>& buffer) const
     {
-        std::vector<uint8_t> buffer;
         buffer.reserve(dataSize());
 
         for (const auto& data : data_list_)
@@ -56,8 +55,6 @@ public:
             auto chunk = data->serialize();
             buffer.insert(buffer.end(), chunk.begin(), chunk.end());
         }
-
-        return buffer;
     }
 
     // Deserialize buffer message into all the SystemData stored in data_list_
