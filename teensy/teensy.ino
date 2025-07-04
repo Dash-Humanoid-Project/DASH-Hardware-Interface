@@ -130,24 +130,11 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
   odrv_user_data->received_heartbeat = true;
 }
 
-struct FeedbackContainer {
-    ODriveUserData* odrv_user_data;
-    int idx;
-};
-
 // Called every time a feedback message arrives from the ODrive
 void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
-  /*FeedbackContainer* container = static_cast<FeedbackContainer*>(user_data);
-  ODriveUserData* odrv_user_data = container->odrv_user_data;
-  int idx = container->idx;
-  //odrv_user_data->last_feedback = msg;
-  odrv_user_data->received_feedback = true;
-  sys_data_->encoder_Pos_Estimate[idx] = msg.Pos_Estimate;
-  sys_data_->encoder_Vel_Estimate[idx] = msg.Vel_Estimate;*/
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
   odrv_user_data->received_feedback = true;
-  sys_data_[odrv_user_data->bus_idx_]->encoder_Pos_Estimate[odrv_user_data->node_idx_] = msg.Pos_Estimate;
-  sys_data_[odrv_user_data->bus_idx_]->encoder_Vel_Estimate[odrv_user_data->node_idx_] = msg.Vel_Estimate;
+  sys_data_->setEncoderEstimateAtBusAndNode(msg.Pos_Estimate, msg.Vel_Estimate, odrv_user_data->bus_idx_, odrv_user_data->node_idx_);
 }
 
 // Called for every message that arrives on the CAN bus
