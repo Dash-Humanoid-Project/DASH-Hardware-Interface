@@ -101,14 +101,13 @@ void printIPAddress()
 
 std::unique_ptr<CommandBase> sys_command_;
 std::unique_ptr<SystemDataContainer> sys_data_;
+size_t num_odrives = 0;
+size_t num_odrives_data = 0;
 
 struct ODriveUserData {
 
-  ODriveUserData(int bus_idx, int node_idx)
-  {
-    bus_idx_ = bus_idx;
-    node_idx_ = node_idx;
-  }
+  ODriveUserData(int bus_idx, int node_idx, FlexCAN_T4_Base* can_ptr)
+    : bus_idx_(bus_idx), node_idx_(node_idx), can_ptr_(can_ptr) {}
 
   Heartbeat_msg_t last_heartbeat;
   bool received_heartbeat = false;
@@ -116,12 +115,14 @@ struct ODriveUserData {
   bool received_feedback = false;
   int bus_idx_;
   int node_idx_;
+  FlexCAN_T4_Base* can_ptr_; // pointer to base class of FlexCAN_T4<CAN*,...>
 };
 
 // Keep some application-specific user data for every ODrive.
-ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID);
-ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID);
-ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID);
+ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
+ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
+ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
+ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data};
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -167,13 +168,20 @@ void setup()
     sys_data_->add(SystemData<N_ODRIVE_CAN2>());
     sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 
+    num_odrives = sizeof(odrives) / sizeof(odrives[0]);
+    num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
+    if (num_odrives != num_odrives_data)
+    {
+      Serial.println("Error: num_odrives != num_odrives_data");
+      while(true);
+    }
+
     // Register callbacks for the heartbeat and encoder feedback messages
-    odrv0.onFeedback(onFeedback, &odrv0_user_data);
-    odrv0.onStatus(onHeartbeat, &odrv0_user_data);
-    odrv1.onFeedback(onFeedback, &odrv1_user_data);
-    odrv1.onStatus(onHeartbeat, &odrv1_user_data);
-    odrv2.onFeedback(onFeedback, &odrv2_user_data);
-    odrv2.onStatus(onHeartbeat, &odrv2_user_data);
+    for (size_t i = 0; i < num_odrives; ++i)
+    {
+      odrives[i]->onFeedback(onFeedback, odrives_data[i]);
+      odrives[i]->onStatus(onHeartbeat, odrives_data[i]);
+    }
 
     // Configure and initialize the CAN bus interface. This function depends on
     // your hardware and the CAN stack that you're using.
@@ -183,34 +191,30 @@ void setup()
     }
 
     Serial.print("Found ODrives: ");
-    while (!odrv0_user_data.received_heartbeat) {
-      pumpEvents(ODRV0_CAN);
-      delay(100);
+    for (size_t i = 0; i < num_odrives; ++i)
+    {
+      while (!odrives_data[i]->received_heartbeat)
+      {
+        pumpEvents(*odrives_data[i]->can_ptr_);
+        delay(100);
+      }
+      Serial.print(" [odrv");
+      Serial.print(i);
+      Serial.print("] ");
     }
-
-    Serial.print(" [odrv0]");
-
-    while (!odrv1_user_data.received_heartbeat) {
-      pumpEvents(ODRV1_CAN);
-      delay(100);
-    }
-    Serial.print(" [odrv1]");
-
-    while (!odrv2_user_data.received_heartbeat) {
-      pumpEvents(ODRV2_CAN);
-      delay(100);
-    }
-    Serial.println(" [odrv2]");
+    Serial.println("");
 
     // request bus voltage and current (1sec timeout)
     Serial.print("Request bus voltage and current:");
     Get_Bus_Voltage_Current_msg_t vbus;
-    while(!odrv0.request(vbus, 1)) {delay(100);}
-    Serial.print(" [odrv0]");
-    while(!odrv1.request(vbus, 1)) {delay(100);}
-    Serial.print(" [odrv1]");
-    while(!odrv2.request(vbus, 1)) {delay(100);}
-    Serial.println(" [odrv2]");
+    for (size_t i = 0; i < num_odrives; ++i)
+    {
+      while(!odrives[i]->request(vbus, 1)) {delay(100);}
+      Serial.print(" [odrv");
+      Serial.print(i);
+      Serial.print("] ");
+    }
+    Serial.println("");
 
     // print the last odrive's DC voltage and current
     Serial.print("DC voltage [V]: ");
@@ -220,62 +224,30 @@ void setup()
   
     // enabling closed loop control
     Serial.print("Enabling closed-loop control: ");
-    while (odrv0_user_data.last_heartbeat.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
-      odrv0.clearErrors();
-      delay(1);
-      odrv0.setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
+    for (size_t i = 0; i < num_odrives; ++i)
+    {
+      while (odrives_data[i]->last_heartbeat.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
+        odrives[i]->clearErrors();
+        delay(1);
+        odrives[i]->setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
 
-      // Pump events for 150ms. This delay is needed for two reasons;
-      // 1. If there is an error condition, such as missing DC power, the ODrive might
-      //    briefly attempt to enter CLOSED_LOOP_CONTROL state, so we can't rely
-      //    on the first heartbeat response, so we want to receive at least two
-      //    heartbeats (100ms default interval).
-      // 2. If the bus is congested, the setState command won't get through
-      //    immediately but can be delayed.
-      for (int i = 0; i < 15; ++i) {
-        delay(10);
-        pumpEvents(ODRV0_CAN);
+        // Pump events for 150ms. This delay is needed for two reasons;
+        // 1. If there is an error condition, such as missing DC power, the ODrive might
+        //    briefly attempt to enter CLOSED_LOOP_CONTROL state, so we can't rely
+        //    on the first heartbeat response, so we want to receive at least two
+        //    heartbeats (100ms default interval).
+        // 2. If the bus is congested, the setState command won't get through
+        //    immediately but can be delayed.
+        for (int j = 0; j < 15; ++j) {
+          delay(10);
+          pumpEvents(*odrives_data[i]->can_ptr_);
+        }
       }
+      Serial.print(" [odrv");
+      Serial.print(i);
+      Serial.print("] ");
     }
-    Serial.print(" [odrv0]");
-
-    while (odrv1_user_data.last_heartbeat.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
-      odrv1.clearErrors();
-      delay(1);
-      odrv1.setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
-
-      // Pump events for 150ms. This delay is needed for two reasons;
-      // 1. If there is an error condition, such as missing DC power, the ODrive might
-      //    briefly attempt to enter CLOSED_LOOP_CONTROL state, so we can't rely
-      //    on the first heartbeat response, so we want to receive at least two
-      //    heartbeats (100ms default interval).
-      // 2. If the bus is congested, the setState command won't get through
-      //    immediately but can be delayed.
-      for (int i = 0; i < 15; ++i) {
-        delay(10);
-        pumpEvents(ODRV1_CAN);
-      }
-    }
-    Serial.print(" [odrv1]");
-
-    while (odrv2_user_data.last_heartbeat.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
-      odrv2.clearErrors();
-      delay(1);
-      odrv2.setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
-
-      // Pump events for 150ms. This delay is needed for two reasons;
-      // 1. If there is an error condition, such as missing DC power, the ODrive might
-      //    briefly attempt to enter CLOSED_LOOP_CONTROL state, so we can't rely
-      //    on the first heartbeat response, so we want to receive at least two
-      //    heartbeats (100ms default interval).
-      // 2. If the bus is congested, the setState command won't get through
-      //    immediately but can be delayed.
-      for (int i = 0; i < 15; ++i) {
-        delay(10);
-        pumpEvents(ODRV2_CAN);
-      }
-    }
-    Serial.println(" [odrv2]");
+    Serial.println("");
     
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
@@ -364,8 +336,9 @@ bool setupCAN()
 
 void loop()
 {
+     // This is required on some platforms to handle incoming feedback CAN messages
     pumpEvents(can1);
-    pumpEvents(can2); // This is required on some platforms to handle incoming feedback CAN messages
+    pumpEvents(can2);
     pumpEvents(can3);
 
     parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
@@ -426,12 +399,11 @@ void parseAndProcessUDPPacket()
               cmd.deserialize(payload);
               //return std::make_unique<PositionCommand>(cmd);
               //cmd.printValue();
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv0.setPosition(p, v_ff, t_ff); },
+              for (size_t i = 0; i < num_odrives; ++i)
+              {
+                odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[i]->setPosition(p, v_ff, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv1.setPosition(p, v_ff, t_ff); },
-                    cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrv2.setPosition(p, v_ff, t_ff); },
-                    cmd.getCommandValue());
+              }
             }
             break;
         }
@@ -447,12 +419,11 @@ void parseAndProcessUDPPacket()
             if (true) {
               cmd.deserialize(payload);
               //cmd.printValue();
-              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv0.setVelocity(v, t_ff); },
+              for (size_t i = 0; i < num_odrives; ++i)
+              {
+                odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrives[i]->setVelocity(v, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv1.setVelocity(v, t_ff); },
-                    cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrv2.setVelocity(v, t_ff); },
-                    cmd.getCommandValue());
+              }
             }
             break;
         }
@@ -467,12 +438,11 @@ void parseAndProcessUDPPacket()
             //if (received_crc == calculated_crc) {  
             if (true) {
               cmd.deserialize(payload);
-              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv0.setTorque(t); },
+              for (size_t i = 0; i < num_odrives; ++i)
+              {
+                odriveCommandWrapper([&](Input_Torque_TYPE t) { odrives[i]->setTorque(t); },
                       cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv1.setTorque(t); },
-                      cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Torque_TYPE t) { odrv2.setTorque(t); },
-                      cmd.getCommandValue());
+              }
             }
             break;
         }
@@ -485,9 +455,29 @@ void parseAndProcessUDPPacket()
     CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
 }
 
+bool receivedFeedbackOnAllODrives()
+{
+  bool received_all = true;
+
+  for (size_t i = 0; i < num_odrives; ++i)
+  {
+    received_all = received_all && odrives_data[i]->received_feedback;  
+  }
+
+  return received_all;
+}
+
+bool resetODriveData()
+{
+  for (size_t i = 0; i < num_odrives; ++i)
+  {
+    odrives_data[i]->received_feedback = false;
+  }
+}
+
 void sendUDPPacket()
 {
-    if (odrv0_user_data.received_feedback && odrv1_user_data.received_feedback && odrv2_user_data.received_feedback) {
+    if (receivedFeedbackOnAllODrives()) {
       //Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
       //Get_Encoder_Estimates_msg_t feedback = odrv0_user_data.last_feedback;
       odrv0_user_data.received_feedback = false;
