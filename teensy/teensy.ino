@@ -196,7 +196,7 @@ void setup()
       while (!odrives_data[i]->received_heartbeat)
       {
         pumpEvents(*odrives_data[i]->can_ptr_);
-        delay(100);
+        delay(1);
       }
       Serial.print(" [odrv");
       Serial.print(i);
