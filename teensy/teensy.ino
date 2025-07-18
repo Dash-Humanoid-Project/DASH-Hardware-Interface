@@ -10,6 +10,8 @@
 #include "DataContainer.h"
 #include "Param.h"
 
+#include <unordered_map>
+
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 
 #define NUM_TX_MAILBOXES 32
@@ -18,7 +20,7 @@ using namespace qindesign::network;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
-FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
+//FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
 IPAddress staticIP{10, 176, 32, 33};
 IPAddress subnetMask{255, 255, 255, 0};
@@ -32,58 +34,28 @@ constexpr int MAX_NUM_SAMPLES = 5000;
 
 EthernetUDP udp;
 
-uint8_t can_data[MAX_NODES][8];    // CAN data buffer for each node
-uint8_t can_command[MAX_NODES][8]; // CAN command buffer for each node
-
-uint8_t can_data_bus2[MAX_NODES][8];    // CAN data buffer for each node
-uint8_t can_command_bus2[MAX_NODES][8]; // CAN command buffer for each node
-
-unsigned long last_packet_time_bus1[MAX_NODES] = {0};
-unsigned long total_latency_bus1[MAX_NODES] = {0};
-unsigned int packet_count_bus1[MAX_NODES] = {0};
-
-unsigned long last_packet_time_bus2[MAX_NODES] = {0};
-unsigned long total_latency_bus2[MAX_NODES] = {0};
-unsigned int packet_count_bus2[MAX_NODES] = {0};
-
 bool first_packet_recv = false;
-const uint8_t RESET_COMMAND = 0xFF;
 
-unsigned long CAN_udp_msg_parse_time_mcs = 0.;
+/*unsigned long CAN_udp_msg_parse_time_mcs = 0.;
 unsigned long CAN_udp_msg_process_time_mcs = 0.;
 unsigned long CAN_udp_msg_send_time_mcs = 0.;
 unsigned long CAN_total_duration_mcs = 0.;
-unsigned long prev_time_mcs = 0.;
+unsigned long prev_time_mcs = 0.;*/
 
 // Instantiate ODrive objects // need to be declared early for fromBuffer()
 ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID); // Standard CAN message ID
 ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
 ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
-ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
+ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
+ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
+ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4, &odrv5}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN* odrives_can1[] = {&odrv0, &odrv1, &odrv2};
+ODriveCAN* odrives_can2[] = {&odrv3, &odrv4, &odrv5};
 
 template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
     std::apply(std::forward<Func>(f), std::forward<Tuple>(args));
-}
-
-// Calculate CRC-8 checksum
-// CRC-8 polynomial (Dallas/Maxim)
-const uint8_t CRC8_POLYNOMIAL = 0x31;
-uint8_t calculate_crc8(const uint8_t *data, size_t length)
-{
-    uint8_t crc = 0;
-    for (size_t i = 0; i < length; ++i)
-    {
-        crc ^= data[i];
-        for (int j = 0; j < 8; ++j)
-        {
-            if (crc & 0x80)
-                crc = (crc << 1) ^ CRC8_POLYNOMIAL;
-            else
-                crc <<= 1;
-        }
-    }
-    return crc;
 }
 
 void printIPAddress()
@@ -123,7 +95,10 @@ struct ODriveUserData {
 ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
 ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
 ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
-ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data};
+ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV2_CAN);
+ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV2_CAN);
+ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV2_CAN);
+ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data};
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -142,6 +117,40 @@ void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
 // Called for every message that arrives on the CAN bus
 void onCanMessage(const CanMsg& msg) {
   for (auto odrive: odrives) {
+    /*Serial.print("0 |");
+    Serial.print(msg.mb);
+    Serial.print(" | ID: 0x");
+    Serial.println(msg.id, HEX);*/
+    onReceive(msg, *odrive);
+  }
+}
+
+std::unordered_map<uint32_t, uint32_t> can_id_counts;
+unsigned long last_report_time = 0;
+
+void onCanMessageLog(const CAN_message_t &msg) {
+  can_id_counts[msg.id]++;
+  
+  // Optional: Print every N milliseconds
+  if (millis() - last_report_time > 5000) {
+    Serial.println("---- CAN ID Frequencies ----");
+    for (const auto& entry : can_id_counts) {
+      Serial.printf("ID: 0x%03X, Count: %lu\n", entry.first, entry.second);
+    }
+    Serial.println("----------------------------");
+    last_report_time = millis();
+    can_id_counts.clear();  // Reset for next interval
+  }
+}
+
+void onCanMessage1(const CanMsg& msg) {
+  for (auto odrive: odrives_can1) {
+    onReceive(msg, *odrive);
+  }
+}
+
+void onCanMessage2(const CanMsg& msg) {
+  for (auto odrive: odrives_can2) {
     onReceive(msg, *odrive);
   }
 }
@@ -167,7 +176,7 @@ void setup()
     sys_data_ = std::make_unique<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN1>());
     sys_data_->add(SystemData<N_ODRIVE_CAN2>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+    //sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 
     num_odrives = sizeof(odrives) / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
@@ -191,6 +200,52 @@ void setup()
       while (true); // spin indefinitely
     }
 
+    // Disable *_msg_rate_ms
+    for (auto odrive: odrives)
+    {
+      while(!odrive->setEndpoint(276, 0)) {delay(10);} // disable iq_msg_rate_ms
+      Serial.print("x");
+
+      while(!odrive->setEndpoint(277, 0)) {delay(10);} // disable error_msg_rate_ms
+      Serial.print("x");
+
+      while(!odrive->setEndpoint(278, 0)) {delay(10);} // disable temperature_msg_rate_ms
+      Serial.print("x");
+
+      while(!odrive->setEndpoint(279, 0)) {delay(10);} // disable bus_voltage_msg_rate_ms
+      Serial.print("x");
+
+      while(!odrive->setEndpoint(280, 0)) {delay(10);} // disable torques_msg_rate_ms
+      Serial.println("x");
+    }
+
+    for (size_t i = 0; i < num_odrives; ++i)
+    {
+      for (int j = 0; j < 5; ++j) {
+          delay(10);
+          pumpEvents(*odrives_data[i]->can_ptr_);
+      }
+    }
+
+    for (auto odrive: odrives)
+    {
+      Serial.print(">");
+      Serial.print(odrive->getEndpoint<uint32_t>(274)); // heartbeat
+      Serial.print(" ");
+      Serial.print(odrive->getEndpoint<uint32_t>(275)); // encoder
+      Serial.print(" | ");
+      Serial.print(odrive->getEndpoint<uint32_t>(276));
+      Serial.print(" ");
+      Serial.print(odrive->getEndpoint<uint32_t>(277));
+      Serial.print(" ");
+      Serial.print(odrive->getEndpoint<uint32_t>(278));
+      Serial.print(" ");
+      Serial.print(odrive->getEndpoint<uint32_t>(279));
+      Serial.print(" ");;
+      Serial.print(odrive->getEndpoint<uint32_t>(280));
+      Serial.println(" ");
+    }
+
     Serial.print("Found ODrives: ");
     for (size_t i = 0; i < num_odrives; ++i)
     {
@@ -206,7 +261,7 @@ void setup()
     Serial.println("");
 
     // request bus voltage and current (1sec timeout)
-    Serial.print("Request bus voltage and current:");
+    /*Serial.print("Request bus voltage and current:");
     Get_Bus_Voltage_Current_msg_t vbus;
     for (size_t i = 0; i < num_odrives; ++i)
     {
@@ -221,7 +276,7 @@ void setup()
     Serial.print("DC voltage [V]: ");
     Serial.print(vbus.Bus_Voltage);
     Serial.print(" | DC current [A]: ");
-    Serial.println(vbus.Bus_Current);
+    Serial.println(vbus.Bus_Current);*/
   
     // enabling closed loop control
     Serial.print("Enabling closed-loop control: ");
@@ -296,40 +351,88 @@ bool setupEthernetWithStaticIP()
 
 bool setupCAN()
 {
-    can1.begin();
+    /*can1.begin();
     can1.setBaudRate(CAN_BAUDRATE);
     can1.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
-    can1.setMBFilter(MB1, 0, 0x0);
-    can1.enhanceFilter(MB1);
-    can1.enableMBInterrupts();
-    can1.onReceive(onCanMessage);
-    
+    //can1.setMBFilter(MB1, 0, 0x0);
+    //can1.enhanceFilter(MB1);
+    can1.enableMBInterrupts(); // Tells the hardware to trigger interrupt when a message is received or sent on any mailbox. Required to call onReceive();
+    can1.onReceive(onCanMessage1);
+    //can1.onReceive(onCanMessageLog);
+    //can1.mailboxStatus();
     can1.distribute();
     can1.setClock(CLK_60MHz);
+    can1.mailboxStatus();*/
+
+    can1.begin();
+    can1.setMaxMB(20);  // Slight buffer for TX or expansion
+
+    // High-frequency IDs (assign 2 mailboxes each)
+    uint16_t highFreqIDs[] = { 0x009, 0x029, 0x049 };
+    int mb = 0;
+    for (int i = 0; i < 3; i++) {
+      can1.setMB(mb, RX);
+      can1.setMBFilter(mb, highFreqIDs[i]);
+      //can1.setMBMask(mb, 0x7FF);
+      mb++;
+
+      can1.setMB(mb, RX);
+      can1.setMBFilter(mb, highFreqIDs[i]);
+      //can1.setMBMask(mb, 0x7FF);
+      mb++;
+    }
+
+    // Lower-frequency IDs (1 mailbox each)
+    uint16_t lowFreqIDs[] = { 0x001, 0x021, 0x041, 0x005, 0x025, 0x045 };
+    for (int i = 0; i < 6; i++) {
+      can1.setMB(mb, RX);
+      can1.setMBFilter(mb, lowFreqIDs[i]);
+      //can1.setMBMask(mb, 0x7FF);
+      mb++;
+    }
+
+    // Fallback/wildcard mailboxes
+    for (int i = 0; i < 3; i++) {
+      can1.setMB(mb, RX);         // Standard
+      can1.setMBFilter(mb, 0x000); // Match any ID
+      //can1.setMBMask(mb, 0x000);   // Wildcard
+      mb++;
+    }
+
+    for (int i = 0; i < 5; i++) {
+      can1.setMB(mb, TX);
+      mb++;
+    }
+    // Setup receive interrupt
+    can1.enableMBInterrupts();
+    can1.onReceive(onCanMessage1);
+    can1.setClock(CLK_60MHz);
+    can1.mailboxStatus();
+
 
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
     can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
-    can2.setMBFilter(MB1, 0, 0x0);
-    can2.enhanceFilter(MB1);
+    //can2.setMBFilter(MB1, 0, 0x0);
+    //can2.enhanceFilter(MB1);
     can2.enableMBInterrupts();
-    can2.onReceive(onCanMessage);
+    can2.onReceive(onCanMessage); // TODO(@nicholasadr): should use a separate onCanMessage?
 
     can2.distribute();
     can2.setClock(CLK_60MHz);
-    // can2.mailboxStatus();
+    //can2.mailboxStatus();
 
-    can3.begin();
+    /*can3.begin();
     can3.setBaudRate(CAN_BAUDRATE);
     can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
     can3.setMBFilter(MB1, 0, 0x0);
     can3.enhanceFilter(MB1);
     can3.enableMBInterrupts();
-    can3.onReceive(onCanMessage);
+    can3.onReceive(onCanMessage); // TODO(@nicholasadr): should use a separate onCanMessage?
 
     can3.distribute();
     can3.setClock(CLK_60MHz);
-    // can3.mailboxStatus();
+    // can3.mailboxStatus();*/
 
     return true;
 }
@@ -340,20 +443,21 @@ void loop()
      // This is required on some platforms to handle incoming feedback CAN messages
     pumpEvents(can1);
     pumpEvents(can2);
-    pumpEvents(can3);
+    //pumpEvents(can3);
+    can1.mailboxStatus();
 
     parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
     if (!first_packet_recv)
         return;
 
-    unsigned long start_time_mcs = micros();
+    //unsigned long start_time_mcs = micros();
     sendUDPPacket(); // send UDP message from Teensy to UP
-    CAN_udp_msg_send_time_mcs = micros() - start_time_mcs;
+    //CAN_udp_msg_send_time_mcs = micros() - start_time_mcs;
 
-    unsigned long current_time_mcs = micros();
+    /*unsigned long current_time_mcs = micros();
     unsigned long loop_duration_mcs = current_time_mcs - prev_time_mcs;
     prev_time_mcs = current_time_mcs;
-    /*Serial.print("[CAN loop timing] ");
+    Serial.print("[CAN loop timing] ");
     Serial.print("frequency: ");
     Serial.print(1000000/loop_duration_mcs);
     Serial.print(" Hz | ");
@@ -370,11 +474,11 @@ void loop()
 
 void parseAndProcessUDPPacket()
 {
-    unsigned long start_time_mcs = micros();
+    //unsigned long start_time_mcs = micros();
     int size = udp.parsePacket();
-    CAN_udp_msg_parse_time_mcs = micros() - start_time_mcs;
+    //CAN_udp_msg_parse_time_mcs = micros() - start_time_mcs;
 
-    start_time_mcs = micros();
+    //start_time_mcs = micros();
     if (size >= 0)
     {
         const uint8_t *data = udp.data();
@@ -453,7 +557,7 @@ void parseAndProcessUDPPacket()
         }
         }
     }
-    CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
+    //CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
 }
 
 bool receivedFeedbackOnAllODrives()
