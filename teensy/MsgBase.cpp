@@ -1,6 +1,4 @@
 #include <vector>
-#include <cstring>
-#include <iostream>
 #include "MsgBase.h"
 
 
@@ -30,7 +28,7 @@ void MsgBase::deserialize(const std::vector<uint8_t>& buffer)
     if (buffer.size() >= dataSize()) {
         readFromBuffer(buffer.data());
     } else {
-        std::cerr << "Buffer too small for deserialization\n";
+        PRINTLN("Buffer too small for deserialization");
     }
 }
 

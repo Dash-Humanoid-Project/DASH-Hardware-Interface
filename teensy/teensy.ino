@@ -9,6 +9,8 @@
 #include "DataContainer.h"
 #include "Param.h"
 
+#define TEENSY_4_1
+
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 
 #define NUM_TX_MAILBOXES 32
