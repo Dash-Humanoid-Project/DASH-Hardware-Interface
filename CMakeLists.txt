@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
 project(dash_hardware_interface)
 
+option(UPXTREME_i14 ON)
 option(ENABLE_TIME_BENCHMARK OFF)
 
+message(UPXTREME_i14="${UPXTREME_i14}")
 message(ENABLE_TIME_BENCHMARK="${ENABLE_TIME_BENCHMARK}")
+
+if(${UPXTREME_i14})
+    add_definitions(-DUPXTREME_i14)
+endif()
 
 if(${ENABLE_TIME_BENCHMARK})
     add_definitions(-DENABLE_TIME_BENCHMARK)
