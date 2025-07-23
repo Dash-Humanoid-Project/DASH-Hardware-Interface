@@ -20,7 +20,7 @@ using namespace qindesign::network;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
-//FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
+FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
 IPAddress staticIP{10, 176, 32, 33};
 IPAddress subnetMask{255, 255, 255, 0};
@@ -49,9 +49,13 @@ ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
 ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
 ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
 ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
-ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4, &odrv5}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
+ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
+ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
+ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4, &odrv5, &odrv6, &odrv7, &odrv8}; // Make sure all ODriveCAN instances are accounted for here
 ODriveCAN* odrives_can1[] = {&odrv0, &odrv1, &odrv2};
 ODriveCAN* odrives_can2[] = {&odrv3, &odrv4, &odrv5};
+ODriveCAN* odrives_can3[] = {&odrv6, &odrv7, &odrv8};
 
 template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
@@ -98,7 +102,10 @@ ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN)
 ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
 ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
 ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
-ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data};
+ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
+ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
+ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
+ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data, &odrv6_user_data, &odrv7_user_data, &odrv8_user_data};
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -155,6 +162,12 @@ void onCanMessage2(const CanMsg& msg) {
   }
 }
 
+void onCanMessage3(const CanMsg& msg) {
+  for (auto odrive: odrives_can3) {
+    onReceive(msg, *odrive);
+  }
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -176,7 +189,7 @@ void setup()
     sys_data_ = std::make_unique<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN1>());
     sys_data_->add(SystemData<N_ODRIVE_CAN2>());
-    //sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 
     num_odrives = sizeof(odrives) / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
@@ -416,23 +429,23 @@ bool setupCAN()
     //can2.setMBFilter(MB1, 0, 0x0);
     //can2.enhanceFilter(MB1);
     can2.enableMBInterrupts();
-    can2.onReceive(onCanMessage); // TODO(@nicholasadr): should use a separate onCanMessage?
+    can2.onReceive(onCanMessage2); // TODO(@nicholasadr): should use a separate onCanMessage?
 
     can2.distribute();
     can2.setClock(CLK_60MHz);
     //can2.mailboxStatus();
 
-    /*can3.begin();
+    can3.begin();
     can3.setBaudRate(CAN_BAUDRATE);
     can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
-    can3.setMBFilter(MB1, 0, 0x0);
-    can3.enhanceFilter(MB1);
+    //can3.setMBFilter(MB1, 0, 0x0);
+    //can3.enhanceFilter(MB1);
     can3.enableMBInterrupts();
-    can3.onReceive(onCanMessage); // TODO(@nicholasadr): should use a separate onCanMessage?
+    can3.onReceive(onCanMessage3); // TODO(@nicholasadr): should use a separate onCanMessage?
 
     can3.distribute();
     can3.setClock(CLK_60MHz);
-    // can3.mailboxStatus();*/
+    // can3.mailboxStatus();
 
     return true;
 }
@@ -443,8 +456,8 @@ void loop()
      // This is required on some platforms to handle incoming feedback CAN messages
     pumpEvents(can1);
     pumpEvents(can2);
-    //pumpEvents(can3);
-    can1.mailboxStatus();
+    pumpEvents(can3);
+    //can1.mailboxStatus();
 
     parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
     if (!first_packet_recv)
