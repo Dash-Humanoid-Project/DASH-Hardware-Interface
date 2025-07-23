@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <cstring>
 #include "MsgBase.h"
 
 #define Input_Pos_TYPE       float

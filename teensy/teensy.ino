@@ -1,4 +1,5 @@
-#include <iostream>
+#define TEENSY_4_1
+
 #include <cstring>
 #include <FlexCAN_T4.h>
 #undef CAN_ERROR_BUS_OFF // TODO: macro name conflict in FlexCAN_T4/imxrt_flexcan.h and ODriveEnums.h
@@ -8,8 +9,6 @@
 #include "Command.h"
 #include "DataContainer.h"
 #include "Param.h"
-
-#define TEENSY_4_1
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
 
@@ -449,7 +448,7 @@ void parseAndProcessUDPPacket()
             break;
         }
         default: {
-            std::cerr << "Unknown MsgType!\n";
+            PRINTLN("Unknown MsgType!");
             break;
         }
         }

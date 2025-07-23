@@ -71,13 +71,13 @@ struct SystemData : public DataBase {
         for (size_t i = 0; i < N; ++i)
         {
             PRINT(encoder_Pos_Estimate[i]);
-            if (i < N - 1) LOG_PRINT(",");
+            if (i < N - 1) PRINT(",");
         }
         PRINT("] | encoder_Vel_Estimate: [");
         for (size_t i = 0; i < N; ++i)
         {
             PRINT(encoder_Vel_Estimate[i]);
-            if (i < N-1) LOG_PRINT(",");
+            if (i < N-1) PRINT(",");
         }
         PRINTLN("]");
     }
