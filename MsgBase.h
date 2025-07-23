@@ -1,9 +1,8 @@
 #pragma once
 
 #include <vector>
-#include <cstring>
-#include <iostream>
 #include <memory>
+#include "Log.h"
 
 enum class MsgType : uint8_t {
     PositionCommand = 0x01,

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstring>
-#include <iostream>
 #include "MsgBase.h"
 
 
@@ -52,7 +50,7 @@ struct SystemData : public DataBase {
 
     float getPosEstimateAtNode(const int& idx) const override {
         if (idx < 0 || idx >= static_cast<int>(N)) {
-            std::cout << "[ERROR] idx out of bounds: " << idx << " (N=" << N << ")\n";
+            PRINTLN("[ERROR] idx out of bounds: ", idx, " (N=", N, ")");
             return -999.0f;
         }
 
@@ -61,7 +59,7 @@ struct SystemData : public DataBase {
 
     float getVelEstimateAtNode(const int& idx) const override {
         if (idx < 0 || idx >= static_cast<int>(N)) {
-            std::cout << "[ERROR] idx out of bounds: " << idx << " (N=" << N << ")\n";
+            PRINTLN("[ERROR] idx out of bounds: ", idx, " (N=", N, ")");
             return -999.0f;
         }
 
@@ -69,10 +67,18 @@ struct SystemData : public DataBase {
     }
 
     void printValue() override {
-        std::cout << "encoder_Pos_Estimate: [";
-        for (size_t i = 0; i < N; ++i) std::cout << encoder_Pos_Estimate[i] << (i < N-1 ? "," : "");
-        std::cout << "] | encoder_Vel_Estimate: [";
-        for (size_t i = 0; i < N; ++i) std::cout << encoder_Vel_Estimate[i] << (i < N-1 ? "," : "");
-        std::cout << "]" << std::endl;
+        PRINT("encoder_Pos_Estimate: [");
+        for (size_t i = 0; i < N; ++i)
+        {
+            PRINT(encoder_Pos_Estimate[i]);
+            if (i < N - 1) LOG_PRINT(",");
+        }
+        PRINT("] | encoder_Vel_Estimate: [");
+        for (size_t i = 0; i < N; ++i)
+        {
+            PRINT(encoder_Vel_Estimate[i]);
+            if (i < N-1) LOG_PRINT(",");
+        }
+        PRINTLN("]");
     }
 };

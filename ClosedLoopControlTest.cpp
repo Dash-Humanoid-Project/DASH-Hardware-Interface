@@ -5,6 +5,8 @@
 #include "SystemConfig.h"
 #include "UPXtreme.h"
 
+#define UPXTREME_i14
+
 #ifndef TWO_PI
 #define TWO_PI (2.0 * M_PI)
 #endif

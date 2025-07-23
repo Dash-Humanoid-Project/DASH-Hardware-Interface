@@ -66,7 +66,7 @@ public:
             size_t single_data_size = data->dataSize();
             if (offset + single_data_size > buffer.size())
             {
-                std::cerr << "Buffer too small for deserializing SystemDataContainer.\n";
+                PRINTLN("Buffer too small for deserializing SystemDataContainer");
                 return false;
             }
 

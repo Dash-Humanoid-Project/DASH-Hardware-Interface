@@ -1,8 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <cstring>
-#include <iostream>
 #include "MsgBase.h"
 
 #define Input_Pos_TYPE       float
@@ -52,7 +50,7 @@ struct PositionCommand : public CommandBase {
     }
 
     void printValue() override {
-        std::cout << "Input_Pos: " << Input_Pos << " | Vel_FF: " << Vel_FF << " | Torque_FF: " << Torque_FF << std::endl;
+        PRINTLN("Input_Pos: ", Input_Pos,  " | Vel_FF: ", Vel_FF, " | Torque_FF: ", Torque_FF);
     }
 };
 
@@ -90,7 +88,7 @@ struct VelocityCommand : public CommandBase {
     }
 
     void printValue() override {
-        std::cout << "Input_Vel: " << Input_Vel << " | Input_Torque_FF: " << Input_Torque_FF << std::endl;
+        PRINTLN("Input_Vel: ", Input_Vel, " | Input_Torque_FF: ", Input_Torque_FF);
     }
 };
 
@@ -125,6 +123,6 @@ struct TorqueCommand : public CommandBase {
     }
 
     void printValue() override {
-        std::cout << "Input_Torque: " << Input_Torque << std::endl;
+        PRINTLN("Input_Torque: ", Input_Torque);
     }
 };
