@@ -23,11 +23,37 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 find_package(Threads REQUIRED)
 find_path(ASIO_INCLUDE_DIR asio.hpp)
 
-add_library(upxtreme SHARED UPXtreme.cpp MsgBase.cpp)
-target_include_directories(upxtreme PRIVATE ${ASIO_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(upxtreme Threads::Threads)
+#include directories
+include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${ASIO_INCLUDE_DIR})
 
-# Add executable
-add_executable(closed_loop_test ClosedLoopControlTest.cpp)
-target_link_libraries(closed_loop_test upxtreme)
-target_include_directories(closed_loop_test PRIVATE ${ASIO_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+# source files
+set(SRC_FILES
+    src/MsgBase.cpp
+    src/UPXtreme.cpp
+)
+
+# library
+add_library(dash_hardware_interface SHARED ${SRC_FILES})
+target_link_libraries(dash_hardware_interface Threads::Threads)
+
+# executable
+add_executable(closed_loop_test test/ClosedLoopControlTest.cpp)
+target_link_libraries(closed_loop_test dash_hardware_interface)
+
+# copy selected files to teensy/
+file(GLOB HEADER_FILES_TO_COPY ${CMAKE_SOURCE_DIR}/include/*.h)
+
+set(SRC_FILES_TO_COPY
+    ${CMAKE_SOURCE_DIR}/include/
+    ${CMAKE_SOURCE_DIR}/src/MsgBase.cpp
+)
+
+set(FILES_TO_COPY ${HEADER_FILES_TO_COPY} ${SRC_FILES_TO_COPY})
+
+set(TEENSY_DIR ${CMAKE_SOURCE_DIR}/teensy)
+
+add_custom_target(copy_to_teensy_dir ALL
+    COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY_DIR}
+    COMMENT "Copying selected files to teensy/ directory"
+)
