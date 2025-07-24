@@ -64,7 +64,7 @@ public:
 
     void handleUDPPacket(const asio::ip::udp::endpoint &client_endpoint, const std::vector<uint8_t> &data);
 
-    void start();
+    vrtual void start();
 
     void end()
     {
