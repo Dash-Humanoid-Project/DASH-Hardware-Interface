@@ -58,7 +58,11 @@ void UDPBenchmark::start()
                 send_timestamps[pkt.sequence_number] = std::chrono::steady_clock::now();
             }
             std::vector<uint8_t> serialized = pkt.serialize();
+            try {
             send_socket.send_to(asio::buffer(serialized), udp::endpoint(asio::ip::make_address(teensy_IP_), udp_port_));
+            } catch (const std::system_error &e) {
+                PRINTLN("Send failed: ", e.what(), " [teensy_IP: ", teensy_IP_, "][udp_port: ", udp_port_, "]");
+            }
             sent_packet_count++;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -86,10 +90,22 @@ void UDPBenchmark::start()
                     send_timestamps.erase(it);
                 }
 
-                if (pkt.sequence_number != expected_sequence) {
-                    packet_loss_count += pkt.sequence_number - expected_sequence;
+                static bool first_packet_recv = false;
+
+                if (!first_packet_recv) {
+                    expected_sequence = pkt.sequence_number + 1;
+                    first_packet_recv = true;
+                } else {
+                    if (pkt.sequence_number > expected_sequence) {
+                        uint32_t gap = pkt.sequence_number - expected_sequence;
+                        // since we are using uint32_t, eventually sequence_number will wrap
+                        // from 2^32-1 to 0 
+                        if (gap < 100000) { // sanity check to ignore wrap around or junk
+                            packet_loss_count += gap;
+                        }
+                    }
+                    expected_sequence = pkt.sequence_number + 1;
                 }
-                expected_sequence = pkt.sequence_number + 1;
             }
         }
     }).detach();

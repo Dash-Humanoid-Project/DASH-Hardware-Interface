@@ -107,7 +107,6 @@ void parseAndProcessUDPPacket()
     if (size == sizeof(BenchmarkPacket))
     {
         senderIP = udp.remoteIP();     // capture sender for echo
-        senderPort = udp.remotePort();
         udp.read((char *)&recv_packet, sizeof(BenchmarkPacket));
         first_packet_recv = true;
     }
@@ -118,7 +117,7 @@ void sendUDPPacket()
     if (!first_packet_recv)
         return;
 
-    int result = udp.beginPacket(senderIP, senderPort);
+    int result = udp.beginPacket(senderIP, PC_udp_port_listening);
     if (!result) {
         printf("beginPacket failed\n");
         return;
