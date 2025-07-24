@@ -18,17 +18,19 @@ using asio::ip::udp;
 
 class UPXtreme
 {
-private:
-	std::string board_name_;
+protected:
+    asio::io_context io_context; // has to be listed before *_socket
     std::string teensy_IP_;
-	const int n_bus_line_;
-    const int n_actuator_;
-    int udp_port_;
-
-    asio::io_context io_context;
     asio::ip::udp::socket send_socket;
     asio::ip::udp::socket receive_socket;
+    int udp_port_;
 
+private:
+    std::string board_name_;
+    const int n_bus_line_;
+    const int n_actuator_;
+    
+        
     std::thread receive_thread;
     std::thread send_thread;
 
@@ -64,7 +66,7 @@ public:
 
     void handleUDPPacket(const asio::ip::udp::endpoint &client_endpoint, const std::vector<uint8_t> &data);
 
-    vrtual void start();
+    virtual void start();
 
     void end()
     {
