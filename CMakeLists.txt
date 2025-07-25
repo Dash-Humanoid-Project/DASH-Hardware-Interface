@@ -51,9 +51,16 @@ set(SRC_FILES_TO_COPY
 
 set(FILES_TO_COPY ${HEADER_FILES_TO_COPY} ${SRC_FILES_TO_COPY})
 
-set(TEENSY_DIR ${CMAKE_SOURCE_DIR}/teensy)
+set(TEENSY_DIR
+    ${CMAKE_SOURCE_DIR}/teensy
+)
 
 add_custom_target(copy_to_teensy_dir ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY_DIR}
     COMMENT "Copying selected files to teensy/ directory"
+)
+
+add_custom_target(copy_teensy_CAN_dir ALL
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/include/Param.h ${CMAKE_SOURCE_DIR}/test/CAN_cyclic_msg_benchmark
+    COMMENT "Copying selected files to test/CAN_cyclic_msg_benchmark/ directory"
 )
