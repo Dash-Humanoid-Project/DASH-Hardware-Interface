@@ -59,12 +59,17 @@ set(TEENSY_DIR
     ${CMAKE_SOURCE_DIR}/teensy
 )
 
+set(TEENSY_DIR_PARAM_ONLY
+    ${CMAKE_SOURCE_DIR}/test/CAN_cyclic_msg_benchmark
+    ${CMAKE_SOURCE_DIR}/test/CAN_noncyclic_msg_benchmark
+)
+    
 add_custom_target(copy_to_teensy_dir ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY_DIR}
     COMMENT "Copying selected files to teensy/ directory"
 )
 
 add_custom_target(copy_teensy_CAN_dir ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/include/Param.h ${CMAKE_SOURCE_DIR}/test/CAN_cyclic_msg_benchmark
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/include/Param.h ${TEENSY_DIR_PARAM_ONLY}
     COMMENT "Copying selected files to test/CAN_cyclic_msg_benchmark/ directory"
 )
