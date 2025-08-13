@@ -73,28 +73,22 @@ void UPXtreme::start()
     // Start the server in a separate thread
     receive_thread = std::thread([&]()
     {
-        static std::chrono::time_point<std::chrono::steady_clock> UDP_in_prev_time = std::chrono::steady_clock::now();
-
 		while (true) {
 			std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
 			asio::ip::udp::endpoint client_endpoint;
 			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
 			std::vector<uint8_t> received_data(recv_buffer.begin(), recv_buffer.begin() + bytes_received);
 			handleUDPPacket(client_endpoint, received_data);
-			std::this_thread::sleep_for(std::chrono::microseconds(200));
+			std::this_thread::sleep_for(std::chrono::microseconds(1));
 
 #ifdef ENABLE_TIME_BENCHMARK
-            auto current_time = std::chrono::steady_clock::now();
-            std::chrono::duration<double> elapsed_time = current_time - UDP_in_prev_time;
-            UDP_in_prev_time = current_time;
-            std::cout << "[UDP receive] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            receive_counter++;
 #endif
             }
 	});
 
     send_thread = std::thread([&]()
 	{
-        static std::chrono::time_point<std::chrono::steady_clock> UDP_out_prev_time = std::chrono::steady_clock::now();
         while (true) {
             // Serialize the SystemCommand object
             if(sys_command_)
@@ -107,16 +101,31 @@ void UPXtreme::start()
             else
                 std::cout << "sys_command_ is not initialized\n";
 
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
 
 #ifdef ENABLE_TIME_BENCHMARK
-            auto current_time = std::chrono::steady_clock::now();
-            std::chrono::duration<double> elapsed_time = current_time - UDP_out_prev_time;
-            UDP_out_prev_time = current_time;
-            std::cout << "[UDP send] frequency: " << 1. / elapsed_time.count() << " Hz" << std::endl;
+            send_counter++;
 #endif
         }
     });
+
+#ifdef ENABLE_TIME_BENCHMARK
+    benchmark_thread = std::thread([&]()
+    {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+
+            uint32_t receive_count = receive_counter.exchange(0);
+            uint32_t send_count = send_counter.exchange(0);
+            double receive_freq = receive_count / 5.0;
+            double send_freq = send_count / 5.0;
+
+            std::cout << "\n--- UDP Benchmark ---\n";
+            std::cout << "Avg receive frequency: " << receive_freq << " Hz\n";
+            std::cout << "Avg send frequency: " << send_freq << " Hz\n";
+        }
+    });
+#endif
 }
 
 void UPXtreme::sendToTeensy(const std::vector<uint8_t> &data, const int data_size)

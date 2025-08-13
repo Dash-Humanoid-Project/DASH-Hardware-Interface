@@ -30,9 +30,12 @@ private:
     const int n_bus_line_;
     const int n_actuator_;
     
-        
     std::thread receive_thread;
     std::thread send_thread;
+    std::thread benchmark_thread;
+
+    std::atomic<uint32_t> receive_counter{0};
+    std::atomic<uint32_t> send_counter{0};
 
 public:
 	// TODO(@nicholasadr): move to private

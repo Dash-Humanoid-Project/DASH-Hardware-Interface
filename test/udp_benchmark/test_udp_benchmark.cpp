@@ -64,7 +64,7 @@ void UDPBenchmark::start()
                 PRINTLN("Send failed: ", e.what(), " [teensy_IP: ", teensy_IP_, "][udp_port: ", udp_port_, "]");
             }
             sent_packet_count++;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::microseconds(25));
         }
     }).detach();
 

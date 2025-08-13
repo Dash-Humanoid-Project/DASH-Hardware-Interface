@@ -27,6 +27,14 @@ constexpr uint32_t kDHCPTimeout = 15000; // 15 seconds
 constexpr uint16_t teensy_udp_port_listening = 8000;
 constexpr uint16_t PC_udp_port_listening = 8000;
 
+uint32_t loop_count = 0;
+double sum_loop_duration_mcs = 0;
+double sum_time_mcs_parse_udp_msg = 0;
+double sum_time_mcs_send_CAN_command = 0;
+double sum_time_mcs_send_udp_msg = 0;
+double prev_time_mcs = 0;
+elapsedMillis print_timer;
+
 EthernetUDP udp;
 
 bool first_packet_recv = false;
@@ -392,35 +400,41 @@ void loop()
     if (!first_packet_recv)
         return;
 
-    //unsigned long start_time_mcs = micros();
+    unsigned long start_time_mcs = micros();
     sendUDPPacket(); // send UDP message from Teensy to UP
-    //CAN_udp_msg_send_time_mcs = micros() - start_time_mcs;
+    sum_time_mcs_send_udp_msg += micros() - start_time_mcs;
 
-    /*unsigned long current_time_mcs = micros();
-    unsigned long loop_duration_mcs = current_time_mcs - prev_time_mcs;
+    unsigned long current_time_mcs = micros();
+    sum_loop_duration_mcs += current_time_mcs - prev_time_mcs;
     prev_time_mcs = current_time_mcs;
-    Serial.print("[CAN loop timing] ");
-    Serial.print("frequency: ");
-    Serial.print(1000000/loop_duration_mcs);
-    Serial.print(" Hz | ");
-    Serial.print("parse time: ");
-    Serial.print(CAN_udp_msg_parse_time_mcs);
-    Serial.print(" mcs | ");
-    Serial.print("process time: ");
-    Serial.print(CAN_udp_msg_process_time_mcs);
-    Serial.print(" mcs | ");
-    Serial.print("send time: ");
-    Serial.print(CAN_udp_msg_send_time_mcs);
-    Serial.println(" mcs");*/
+
+    loop_count++;
+
+    if (print_timer >= 5000)
+    {
+      double avg_loop_duration_mcs = sum_loop_duration_mcs / loop_count;
+      double avg_time_mcs_parse_udp_msg = sum_time_mcs_parse_udp_msg / loop_count;
+      double avg_time_mcs_send_CAN_command = sum_time_mcs_send_CAN_command / loop_count;
+      double avg_time_mcs_send_udp_msg = sum_time_mcs_send_udp_msg / loop_count;
+      double avg_freq = 1000000/avg_loop_duration_mcs;
+      Serial.printf("Avg frequency: %.2f Hz | Parse UDP msg: %.2f mcs | Send CAN cmd: %.2f mcs | Send UDP msg: %.2f mcs", avg_freq, avg_time_mcs_parse_udp_msg, avg_time_mcs_send_CAN_command, avg_time_mcs_send_udp_msg);
+      Serial.println();
+      loop_count = 0;
+      sum_loop_duration_mcs = 0;
+      sum_time_mcs_parse_udp_msg = 0;
+      sum_time_mcs_send_CAN_command = 0;
+      sum_time_mcs_send_udp_msg = 0;
+      print_timer = 0;
+    }
 }
 
 void parseAndProcessUDPPacket()
 {
-    //unsigned long start_time_mcs = micros();
+    unsigned long start_time_mcs = micros();
     int size = udp.parsePacket();
-    //CAN_udp_msg_parse_time_mcs = micros() - start_time_mcs;
+    sum_time_mcs_parse_udp_msg += micros() - start_time_mcs;
 
-    //start_time_mcs = micros();
+    start_time_mcs = micros();
     if (size >= 0)
     {
         const uint8_t *data = udp.data();
@@ -432,6 +446,7 @@ void parseAndProcessUDPPacket()
         MsgType type = static_cast<MsgType>(msg_buffer);
         //Serial.println(static_cast<uint8_t>(type));
 
+        // the switch case only adds about 0.4 mcs
         switch (type) {
         case MsgType::PositionCommand: {
             //Serial.println("MsgType::PositionCommand");
@@ -499,7 +514,7 @@ void parseAndProcessUDPPacket()
         }
         }
     }
-    //CAN_udp_msg_process_time_mcs = micros() - start_time_mcs;
+    sum_time_mcs_send_CAN_command += micros() - start_time_mcs;
 }
 
 bool receivedFeedbackOnAllODrives()
