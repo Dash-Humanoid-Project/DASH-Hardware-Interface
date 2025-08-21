@@ -104,7 +104,7 @@ void setup()
 bool setupCAN()
 {
     can1.begin();
-    can2.setBaudRate(CAN_BAUDRATE);
+    can1.setBaudRate(CAN_BAUDRATE);
     can1.setMaxMB(20);  // Slight buffer for TX or expansion
 
     // High-frequency IDs (assign 2 mailboxes each)
