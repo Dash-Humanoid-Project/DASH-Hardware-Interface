@@ -70,6 +70,11 @@ add_custom_target(copy_to_teensy_dir ALL
 )
 
 add_custom_target(copy_teensy_CAN_dir ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/include/Param.h ${TEENSY_DIR_PARAM_ONLY}
-    COMMENT "Copying selected files to test/CAN_cyclic_msg_benchmark/ directory"
+    COMMENT "Copying Param.h to CAN benchmark directories"
 )
+
+foreach(dst IN LISTS TEENSY_DIR_PARAM_ONLY)
+    add_custom_command(TARGET copy_teensy_CAN_dir PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/include/Param.h ${dst}/Param.h
+    )
+endforeach()
