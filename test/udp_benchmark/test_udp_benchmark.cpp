@@ -141,6 +141,7 @@ void UDPBenchmark::start()
                 std::cout << "---------------------\n";
 
                 latencies_ms.clear();
+                packet_loss_count = 0;
             }
         }
     }).detach();
