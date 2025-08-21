@@ -99,7 +99,7 @@ void UPXtreme::start()
             else
                 std::cout << "sys_command_ is not initialized\n";
 
-            std::this_thread::sleep_for(std::chrono::microseconds(1));
+            std::this_thread::sleep_for(std::chrono::microseconds(30));
 
 #ifdef ENABLE_TIME_BENCHMARK
             send_counter++;
