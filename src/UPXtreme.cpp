@@ -73,13 +73,11 @@ void UPXtreme::start()
     // Start the server in a separate thread
     receive_thread = std::thread([&]()
     {
+        std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
 		while (true) {
-			std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
 			asio::ip::udp::endpoint client_endpoint;
 			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
-			std::vector<uint8_t> received_data(recv_buffer.begin(), recv_buffer.begin() + bytes_received);
-			handleUDPPacket(client_endpoint, received_data);
-			std::this_thread::sleep_for(std::chrono::microseconds(1));
+			handleUDPPacket(client_endpoint, {recv_buffer.begin(), recv_buffer.begin() + bytes_received});
 
 #ifdef ENABLE_TIME_BENCHMARK
             receive_counter++;

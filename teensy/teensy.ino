@@ -10,7 +10,8 @@
 #include "Param.h"
 
 #define CAN_BAUDRATE 250000 // CAN Simple can go up to 1e6?
-
+#define HEARTBEAT_MSG_RATE_MS 100 // 10 Hz
+#define ENCODER_MSG_RATE_MS 2 // 500 Hz
 #define NUM_TX_MAILBOXES 32
 #define NUM_RX_MAILBOXES 32
 using namespace qindesign::network;
@@ -190,20 +191,13 @@ void setup()
     // Disable *_msg_rate_ms
     for (auto odrive: odrives)
     {
+      while(!odrive->setEndpoint(274, HEARTBEAT_MSG_RATE_MS)) {delay(10);} // set heartbeat_msg_rate_ms
+      while(!odrive->setEndpoint(275, ENCODER_MSG_RATE_MS)) {delay(10);} // set encoder_msg_rate_ms
       while(!odrive->setEndpoint(276, 0)) {delay(10);} // disable iq_msg_rate_ms
-      //PRINT("x");
-
-      while(!odrive->setEndpoint(277, 0)) {delay(10);} // disable error_msg_rate_ms
-      //PRINT("x");
-
-      while(!odrive->setEndpoint(278, 0)) {delay(10);} // disable temperature_msg_rate_ms
-      //PRINT("x");
-
-      while(!odrive->setEndpoint(279, 0)) {delay(10);} // disable bus_voltage_msg_rate_ms
-      //PRINT("x");
-
-      while(!odrive->setEndpoint(280, 0)) {delay(10);} // disable torques_msg_rate_ms
-      //PRINTLN("x");
+      while(!odrive->setEndpoint(277, 0)) {delay(10);} // disable error_msg
+      while(!odrive->setEndpoint(278, 0)) {delay(10);} // disable temperature_msg
+      while(!odrive->setEndpoint(279, 0)) {delay(10);} // disable bus_voltage_msg
+      while(!odrive->setEndpoint(280, 0)) {delay(10);} // disable torques_msg
     }
 
     for (size_t i = 0; i < num_odrives; ++i)
