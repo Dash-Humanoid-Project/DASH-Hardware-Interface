@@ -11,6 +11,12 @@ IPAddress gateway{10, 176, 32, 1};
 constexpr uint16_t teensy_udp_port_listening = 8000;
 constexpr uint16_t PC_udp_port_listening = 8000;
 
+// --- counters + timestamps ---
+volatile uint32_t rx_ok = 0, rx_bad = 0;
+volatile uint32_t tx_ok = 0, tx_fail = 0;
+static uint32_t last_rx_ms = 0;
+static uint32_t last_stat_ms = 0;
+
 EthernetUDP udp;
 
 struct BenchmarkPacket {
@@ -97,19 +103,67 @@ bool setupEthernetWithStaticIP()
 
 void loop()
 {
+    Ethernet.loop(); // Good practice to let the stack do housekeeping (ARP, timers, etc.)
     parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
+
+    // RX watchdog
+    // If no incoming packets for 500 ms, reset the UDP socket
+    if (first_packet_recv && (millis() - last_rx_ms) > 500) {
+      // stop echoing stale data
+      printf("[udp] RX idle watchdog: reinit socket\n");
+      first_packet_recv = false;
+
+      // re-init UDP (cheap and effective)
+      udp.stop();
+      udp.begin(teensy_udp_port_listening);
+    }
+
     sendUDPPacket(); // send UDP message from Teensy to UP
+
+    // Optional: check for rx_bad and tx_fail instances
+    /*if (millis() - last_stat_ms >= 1000) {
+        printf("print\n");
+        last_stat_ms = millis();
+        printf("rx_ok=%lu rx_bad=%lu tx_ok=%lu tx_fail=%lu  last_rx=%lums ago\n",
+               (unsigned long)rx_ok, (unsigned long)rx_bad,
+               (unsigned long)tx_ok, (unsigned long)tx_fail,
+               (unsigned long)(millis() - last_rx_ms));
+     }*/
 }
 
-void parseAndProcessUDPPacket()
-{
-    int size = udp.parsePacket();
-    if (size == sizeof(BenchmarkPacket))
-    {
-        senderIP = udp.remoteIP();     // capture sender for echo
-        udp.read((char *)&recv_packet, sizeof(BenchmarkPacket));
+void parseAndProcessUDPPacket() {
+  int size;
+  // Read until there are no more packets queued
+  while ((size = udp.parsePacket()) > 0) {
+    senderIP   = udp.remoteIP();
+    senderPort = udp.remotePort();
+
+    if (size == (int)sizeof(BenchmarkPacket)) {
+      // Copy the latest *valid* packet into recv_packet
+      int n = udp.read((char*)&recv_packet, sizeof(BenchmarkPacket));
+      if (n == (int)sizeof(BenchmarkPacket)) {
+        rx_ok++;
+        last_rx_ms = millis();
         first_packet_recv = true;
+      } else {
+        rx_bad++;   // partial read; shouldn’t happen, but count it
+      }
+    } else {
+      // Read & drop mismatched packets so they don't clog the queue
+      uint8_t trash[128];
+      int read_total = 0;
+      while (udp.available() && read_total < size) {
+        int chunk = udp.read((char*)trash, sizeof(trash));
+        if (chunk > 0) {
+          read_total += chunk;
+        }
+      }
+      rx_bad++;
     }
+
+    // ensure the whole datagram is consumed even if a short read occurred
+    while (udp.available()) udp.read();
+  }
 }
 
 void sendUDPPacket()
@@ -119,6 +173,7 @@ void sendUDPPacket()
 
     int result = udp.beginPacket(senderIP, PC_udp_port_listening);
     if (!result) {
+        tx_fail++;
         printf("beginPacket failed\n");
         return;
     }
@@ -126,6 +181,8 @@ void sendUDPPacket()
     udp.write((const uint8_t *)&recv_packet, sizeof(BenchmarkPacket));
 
     if (!udp.endPacket()) {
+        tx_fail++;
         printf("Error sending UDP from Teensy\n");
     }
+    tx_ok++;
 }
