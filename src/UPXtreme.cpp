@@ -4,8 +4,8 @@
 #include <arpa/inet.h>
 
 
-UPXtreme::UPXtreme(const std::vector<std::string> &teensy_IP, const std::string &interface, int udp_port, int n_bus_line, int n_actuator, std::string board_name)
-    : teensy_IPs_(teensy_IP), n_bus_line_(n_bus_line), n_actuator_(n_actuator), udp_port_(udp_port),
+UPXtreme::UPXtreme(const std::vector<std::string> &teensy_IPs, const std::string &interface, int udp_port, int n_bus_line, int n_actuator, std::string board_name)
+    : teensy_IPs_(teensy_IPs), n_bus_line_(n_bus_line), n_actuator_(n_actuator), udp_port_(udp_port),
       send_socket(io_context), receive_socket(io_context), board_name_(board_name)
 {
     // Find the network interface IP address
@@ -62,10 +62,14 @@ UPXtreme::UPXtreme(const std::vector<std::string> &teensy_IP, const std::string 
 	std::cout << "send_socket    bound to " << send_socket.local_endpoint() << std::endl;
     std::cout << "receive_socket bound to " << receive_socket.local_endpoint() << std::endl;
 
-    sys_data_ = std::make_shared<SystemDataContainer>();
-    sys_data_->add(SystemData<N_ODRIVE_CAN1>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN2>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+    // Create a SystemDataContainer for each Teensy
+    sys_data_vec_.resize(teensy_IPs_.size());
+    for (size_t i = 0; i < teensy_IPs_.size(); ++i) {
+        sys_data_vec_[i] = std::make_shared<SystemDataContainer>();
+        sys_data_vec_[i]->add(SystemData<N_ODRIVE_CAN1>());
+        sys_data_vec_[i]->add(SystemData<N_ODRIVE_CAN2>());
+        sys_data_vec_[i]->add(SystemData<N_ODRIVE_CAN3>());
+    }
 }
 
 void UPXtreme::start()
@@ -148,10 +152,24 @@ void UPXtreme::sendToTeensy(const std::vector<uint8_t> &data, const int data_siz
     }
 }
 
+int UPXtreme::getTeensyIndexFromEndpoint(const asio::ip::udp::endpoint &client_endpoint) const {
+    std::string ip = client_endpoint.address().to_string();
+    for (size_t i = 0; i < teensy_IPs_.size(); ++i) {
+        if (teensy_IPs_[i] == ip) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1; // Not found
+}
+
 void UPXtreme::handleUDPPacket(const udp::endpoint &client_endpoint, const std::vector<uint8_t> &data)
 {
     // Unpack the received data
     std::vector<uint8_t> data_list(data.begin(), data.end());
-
-    sys_data_->deserialize(data_list);
+    int idx = getTeensyIndexFromEndpoint(client_endpoint);
+    if (idx >= 0 && idx < static_cast<int>(sys_data_vec_.size())) {
+        sys_data_vec_[idx]->deserialize(data_list);
+    } else {
+        std::cerr << "Received UDP packet from unknown Teensy IP: " << client_endpoint.address().to_string() << std::endl;
+    }
 }

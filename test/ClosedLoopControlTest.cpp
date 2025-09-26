@@ -66,9 +66,11 @@ public:
 
                 cmd_ptr = std::make_shared<PositionCommand>(desired_position, velocity_ff);
                 upx_->setPositionCommand(cmd_ptr);
-#ifndef ENABLE_TIME_BENCHMARK
-                upx_->sys_data_->printValue();
-#endif
+            #ifndef ENABLE_TIME_BENCHMARK
+                for (const auto& sys_data : upx_->sys_data_vec_) {
+                    sys_data->printValue();
+                }
+            #endif
             }
         }
         if (cmd_flag_ == 1)
@@ -79,9 +81,11 @@ public:
                 Input_Vel_TYPE desired_velocity = 0.5;
                 vcmd_ptr = std::make_shared<VelocityCommand>(desired_velocity);
                 upx_->setVelocityCommand(vcmd_ptr);
-#ifndef ENABLE_TIME_BENCHMARK
-                upx_->sys_data_->printValue();
-#endif
+            #ifndef ENABLE_TIME_BENCHMARK
+                for (const auto& sys_data : upx_->sys_data_vec_) {
+                    sys_data->printValue();
+                }
+            #endif
             }
         }
         if (cmd_flag_ == 2)
@@ -92,9 +96,11 @@ public:
                 float desired_torque = 0.32;
                 tcmd_ptr = std::make_shared<TorqueCommand>(desired_torque);
                 upx_->setTorqueCommand(tcmd_ptr);
-#ifndef ENABLE_TIME_BENCHMARK
-                upx_->sys_data_->printValue();
-#endif
+            #ifndef ENABLE_TIME_BENCHMARK
+                for (const auto& sys_data : upx_->sys_data_vec_) {
+                    sys_data->printValue();
+                }
+            #endif
             }
         }
     }

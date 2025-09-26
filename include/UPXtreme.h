@@ -38,9 +38,9 @@ private:
     std::atomic<uint32_t> send_counter{0};
 
 public:
-	// TODO(@nicholasadr): move to private
-    std::shared_ptr<CommandBase> sys_command_; //
-    std::shared_ptr<SystemDataContainer> sys_data_;
+    // TODO(@nicholasadr): move to private
+    std::shared_ptr<CommandBase> sys_command_;
+    std::vector<std::shared_ptr<SystemDataContainer>> sys_data_vec_;
     std::mutex command_mutex;
 
     UPXtreme(const std::vector<std::string> &teensy_IPs, const std::string &interface, int port, int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
@@ -68,6 +68,7 @@ public:
     void sendToTeensy(const std::vector<uint8_t> &data, const int data_size);
 
     void handleUDPPacket(const asio::ip::udp::endpoint &client_endpoint, const std::vector<uint8_t> &data);
+    int getTeensyIndexFromEndpoint(const asio::ip::udp::endpoint &client_endpoint) const;
 
     virtual void start();
 
