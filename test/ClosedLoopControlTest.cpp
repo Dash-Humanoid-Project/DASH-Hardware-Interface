@@ -27,32 +27,20 @@ class ClosedLoopControl
 public:
     ClosedLoopControl(int cmd_flag = 0) : cmd_flag_(cmd_flag)
     {
-        for (size_t i = 0; i < config.N_teensy; i++)
-        {
-            pc_.push_back(
-                std::make_unique<UPXtreme>(config.teensy_IP[i],
-                                           config.PC_network_interface_name,
-                                           config.udp_port_PC_teensy[i],
-									       config.N_CAN_bus_lines_per_teensy[i],
-									       config.N_actuator_per_CAN_bus_line,
-                                           "UPXtreme_" + std::to_string(i)));
-        }
-
-        for (size_t id = 0; id < pc_.size(); ++id)
-        {
-            auto &board = pc_[id];
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            board->start();
-        }
+        upx_ = std::make_unique<UPXtreme>(
+            std::vector<std::string>(config.teensy_IP, config.teensy_IP + config.N_teensy),
+            config.PC_network_interface_name,
+            config.udp_port_PC_teensy,
+            config.N_CAN_bus_lines_per_teensy[0], // Assuming all have same bus config
+            config.N_actuator_per_CAN_bus_line,
+            "UPXtreme");
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        upx_->start();
     }
 
     ~ClosedLoopControl()
     {
-        for (size_t id = 0; id < pc_.size(); ++id)
-        {
-            auto &board = pc_[id];
-            board->end();
-        }
+        upx_->end();
     }
 
     void run()
@@ -77,35 +65,25 @@ public:
                 Vel_FF_TYPE velocity_ff = scale * cos(phase) * (TWO_PI / SINE_PERIOD);
 
                 cmd_ptr = std::make_shared<PositionCommand>(desired_position, velocity_ff);
-
-                for (size_t id = 0; id < pc_.size(); ++id)
-                {
-                    pc_[id]->setPositionCommand(cmd_ptr);
+                upx_->setPositionCommand(cmd_ptr);
 #ifndef ENABLE_TIME_BENCHMARK
-                    pc_[id]->sys_data_->printValue();
+                upx_->sys_data_->printValue();
 #endif
-                }
             }
         }
-        // velocity command
-        if (cmd_flag_ == 1) 
+        if (cmd_flag_ == 1)
         {
             while (true)
             {
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
                 Input_Vel_TYPE desired_velocity = 0.5;
                 vcmd_ptr = std::make_shared<VelocityCommand>(desired_velocity);
-
-                for (size_t id = 0; id < pc_.size(); ++id)
-                {
-                    pc_[id]->setVelocityCommand(vcmd_ptr);
+                upx_->setVelocityCommand(vcmd_ptr);
 #ifndef ENABLE_TIME_BENCHMARK
-                    pc_[id]->sys_data_->printValue();
+                upx_->sys_data_->printValue();
 #endif
-                }
             }
         }
-        // torque command
         if (cmd_flag_ == 2)
         {
             while (true)
@@ -113,14 +91,10 @@ public:
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
                 float desired_torque = 0.32;
                 tcmd_ptr = std::make_shared<TorqueCommand>(desired_torque);
-
-                for (size_t id = 0; id < pc_.size(); ++id)
-                {
-                    pc_[id]->setTorqueCommand(tcmd_ptr);
+                upx_->setTorqueCommand(tcmd_ptr);
 #ifndef ENABLE_TIME_BENCHMARK
-                    pc_[id]->sys_data_->printValue();
+                upx_->sys_data_->printValue();
 #endif
-                }
             }
         }
     }
@@ -133,10 +107,8 @@ public:
     float SINE_PERIOD = 5.0f; // Period of the position command sine wave in seconds
 
 private:
-
     int cmd_flag_;
-    std::vector<std::unique_ptr<UPXtreme>> pc_;
-
+    std::unique_ptr<UPXtreme> upx_;
 };
 
 int main(int argc, char* argv[])

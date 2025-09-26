@@ -4,8 +4,8 @@
 #include <arpa/inet.h>
 
 
-UPXtreme::UPXtreme(const std::string &teensy_IP, const std::string &interface, int udp_port, int n_bus_line, int n_actuator, std::string board_name)
-    : teensy_IP_(teensy_IP), n_bus_line_(n_bus_line), n_actuator_(n_actuator), udp_port_(udp_port),
+UPXtreme::UPXtreme(const std::vector<std::string> &teensy_IP, const std::string &interface, int udp_port, int n_bus_line, int n_actuator, std::string board_name)
+    : teensy_IPs_(teensy_IP), n_bus_line_(n_bus_line), n_actuator_(n_actuator), udp_port_(udp_port),
       send_socket(io_context), receive_socket(io_context), board_name_(board_name)
 {
     // Find the network interface IP address
@@ -139,12 +139,13 @@ void UPXtreme::sendToTeensy(const std::vector<uint8_t> &data, const int data_siz
     std::vector<uint8_t> packet(padded_data);
     packet.push_back(crc_value);
 
-    // Send the data to the Teensy
-	size_t bytes_sent = send_socket.send_to(asio::buffer(packet), udp::endpoint(asio::ip::make_address(teensy_IP_), udp_port_));
-
-	if (bytes_sent != packet.size()) {
-    	printf("Failed to send complete packet: Sent %zu out of %zu bytes\n", bytes_sent, packet.size());
-	}
+    // Send the data to all Teensy boards
+    for (const auto& ip : teensy_IP_) {
+        size_t bytes_sent = send_socket.send_to(asio::buffer(packet), udp::endpoint(asio::ip::make_address(ip), udp_port_));
+        if (bytes_sent != packet.size()) {
+            printf("Failed to send complete packet to %s: Sent %zu out of %zu bytes\n", ip.c_str(), bytes_sent, packet.size());
+        }
+    }
 }
 
 void UPXtreme::handleUDPPacket(const udp::endpoint &client_endpoint, const std::vector<uint8_t> &data)

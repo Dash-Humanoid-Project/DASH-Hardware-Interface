@@ -20,7 +20,7 @@ class UPXtreme
 {
 protected:
     asio::io_context io_context; // has to be listed before *_socket
-    std::string teensy_IP_;
+    std::vector<std::string> teensy_IPs_;
     asio::ip::udp::socket send_socket;
     asio::ip::udp::socket receive_socket;
     int udp_port_;
@@ -43,7 +43,7 @@ public:
     std::shared_ptr<SystemDataContainer> sys_data_;
     std::mutex command_mutex;
 
-    UPXtreme(const std::string &ip, const std::string &interface, int port, int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
+    UPXtreme(const std::vector<std::string> &teensy_IPs, const std::string &interface, int port, int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
 
     ~UPXtreme() {}
 
