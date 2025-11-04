@@ -42,8 +42,8 @@ add_executable(closed_loop_test test/ClosedLoopControlTest.cpp)
 target_link_libraries(closed_loop_test dash_hardware_interface)
 
 # Executable for UDP benchmark test
-add_executable(test_udp_benchmark test/udp_benchmark/test_udp_benchmark.cpp)
-target_link_libraries(test_udp_benchmark dash_hardware_interface)
+#add_executable(test_udp_benchmark test/udp_benchmark/test_udp_benchmark.cpp)
+#target_link_libraries(test_udp_benchmark dash_hardware_interface)
 
 # copy selected files to teensy/
 file(GLOB HEADER_FILES_TO_COPY ${CMAKE_SOURCE_DIR}/include/*.h)

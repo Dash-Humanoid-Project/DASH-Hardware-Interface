@@ -1,0 +1,85 @@
+#pragma once
+
+#define ODRV0_CAN_NODE_ID 0
+#define ODRV1_CAN_NODE_ID 1
+#define ODRV2_CAN_NODE_ID 2
+#define ODRV3_CAN_NODE_ID 3
+#define ODRV4_CAN_NODE_ID 4
+#define ODRV5_CAN_NODE_ID 5
+
+#define ODRV6_CAN_NODE_ID 6
+#define ODRV7_CAN_NODE_ID 7
+#define ODRV8_CAN_NODE_ID 8
+#define ODRV9_CAN_NODE_ID 9
+#define ODRV10_CAN_NODE_ID 10
+#define ODRV11_CAN_NODE_ID 11
+
+#define ODRV12_CAN_NODE_ID 12 
+#define ODRV13_CAN_NODE_ID 13 
+#define ODRV14_CAN_NODE_ID 14
+#define ODRV15_CAN_NODE_ID 15
+#define ODRV16_CAN_NODE_ID 16
+#define ODRV17_CAN_NODE_ID 17
+
+#define N_CAN 6
+
+#define N_ODRIVE_CAN1 2
+#define N_ODRIVE_CAN2 2
+#define N_ODRIVE_CAN3 2
+
+#define ODRV0_CAN_ORDER_ID 0
+#define ODRV1_CAN_ORDER_ID 1
+#define ODRV2_CAN_ORDER_ID 0
+#define ODRV3_CAN_ORDER_ID 1
+#define ODRV4_CAN_ORDER_ID 0
+#define ODRV5_CAN_ORDER_ID 1
+#define ODRV6_CAN_ORDER_ID 0
+#define ODRV7_CAN_ORDER_ID 1
+#define ODRV8_CAN_ORDER_ID 0
+#define ODRV9_CAN_ORDER_ID 1
+#define ODRV10_CAN_ORDER_ID 0
+#define ODRV11_CAN_ORDER_ID 1
+#define ODRV12_CAN_ORDER_ID 0
+#define ODRV13_CAN_ORDER_ID 1
+#define ODRV14_CAN_ORDER_ID 0
+#define ODRV15_CAN_ORDER_ID 1
+#define ODRV16_CAN_ORDER_ID 0
+#define ODRV17_CAN_ORDER_ID 1
+
+#define ODRV0_CAN_BUS_ID 0
+#define ODRV1_CAN_BUS_ID 0
+#define ODRV2_CAN_BUS_ID 1
+#define ODRV3_CAN_BUS_ID 1
+#define ODRV4_CAN_BUS_ID 2
+#define ODRV5_CAN_BUS_ID 2
+#define ODRV6_CAN_BUS_ID 0
+#define ODRV7_CAN_BUS_ID 0
+#define ODRV8_CAN_BUS_ID 1
+#define ODRV9_CAN_BUS_ID 1
+#define ODRV10_CAN_BUS_ID 2
+#define ODRV11_CAN_BUS_ID 2
+#define ODRV12_CAN_BUS_ID 0
+#define ODRV13_CAN_BUS_ID 0
+#define ODRV14_CAN_BUS_ID 1
+#define ODRV15_CAN_BUS_ID 1
+#define ODRV16_CAN_BUS_ID 2
+#define ODRV17_CAN_BUS_ID 2
+
+#define ODRV0_CAN can1
+#define ODRV1_CAN can1
+#define ODRV2_CAN can2
+#define ODRV3_CAN can2
+#define ODRV4_CAN can3
+#define ODRV5_CAN can3
+#define ODRV6_CAN can1
+#define ODRV7_CAN can1
+#define ODRV8_CAN can2
+#define ODRV9_CAN can2
+#define ODRV10_CAN can3
+#define ODRV11_CAN can3
+#define ODRV12_CAN can1
+#define ODRV13_CAN can1
+#define ODRV14_CAN can2
+#define ODRV15_CAN can2
+#define ODRV16_CAN can3
+#define ODRV17_CAN can3

@@ -49,6 +49,11 @@ UPXtreme::UPXtreme(const std::vector<std::string> &teensy_IPs, const std::string
         throw std::runtime_error("Failed to find the network_intf interface IP address");
     }
 
+    printf("Teensy IPS:\n");
+    for (const auto& ip : teensy_IPs_) {
+        printf("%s\n", ip.c_str());
+    }
+
     // Bind the sending socket to the network_intf interface
 	// Binding to port 0 means the local sending port will be chosen automatically
     send_socket.open(asio::ip::udp::v4());
@@ -77,7 +82,7 @@ void UPXtreme::start()
     // Start the server in a separate thread
     receive_thread = std::thread([&]()
     {
-        std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
+        std::vector<uint8_t> recv_buffer(sys_data_vec_[0]->dataSize());
 		while (true) {
 			asio::ip::udp::endpoint client_endpoint;
 			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
@@ -98,7 +103,6 @@ void UPXtreme::start()
                 std::lock_guard<std::mutex> lock(command_mutex);
                 std::vector<uint8_t> serialized_data = sys_command_->serializeWithHeader();
                 sendToTeensy(serialized_data, serialized_data.size());
-
             }
             else
                 std::cout << "sys_command_ is not initialized\n";
@@ -144,7 +148,7 @@ void UPXtreme::sendToTeensy(const std::vector<uint8_t> &data, const int data_siz
     packet.push_back(crc_value);
 
     // Send the data to all Teensy boards
-    for (const auto& ip : teensy_IP_) {
+    for (const auto& ip : teensy_IPs_) {
         size_t bytes_sent = send_socket.send_to(asio::buffer(packet), udp::endpoint(asio::ip::make_address(ip), udp_port_));
         if (bytes_sent != packet.size()) {
             printf("Failed to send complete packet to %s: Sent %zu out of %zu bytes\n", ip.c_str(), bytes_sent, packet.size());
