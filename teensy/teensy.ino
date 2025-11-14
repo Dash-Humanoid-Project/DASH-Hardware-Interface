@@ -44,16 +44,19 @@ bool first_packet_recv = false;
 ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID);
 ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
 ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
-ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
-ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
-ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
-ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
-ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
-ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
-ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4, &odrv5, &odrv6, &odrv7, &odrv8}; // Make sure all ODriveCAN instances are accounted for here
-ODriveCAN* odrives_can1[] = {&odrv0, &odrv1, &odrv2};
-ODriveCAN* odrives_can2[] = {&odrv3, &odrv4, &odrv5};
-ODriveCAN* odrives_can3[] = {&odrv6, &odrv7, &odrv8};
+//ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
+//ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
+//ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
+//ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
+//ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
+//ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
+//ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4, &odrv5, &odrv6, &odrv7, &odrv8}; // Make sure all ODriveCAN instances are accounted for here
+//ODriveCAN* odrives_can1[] = {&odrv0, &odrv1, &odrv2};
+//ODriveCAN* odrives_can2[] = {&odrv3, &odrv4, &odrv5};
+//ODriveCAN* odrives_can3[] = {&odrv6, &odrv7, &odrv8};
+ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN* odrives_can1[] = {&odrv0, &odrv1};
+ODriveCAN* odrives_can2[] = {&odrv2};
 
 template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
@@ -96,13 +99,14 @@ struct ODriveUserData {
 ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
 ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
 ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
-ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
-ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
-ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
-ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
-ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
-ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
-ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data, &odrv6_user_data, &odrv7_user_data, &odrv8_user_data};
+//ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
+//ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
+//ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
+//ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
+//ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
+//ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
+//ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data, &odrv6_user_data, &odrv7_user_data, &odrv8_user_data};
+ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data};
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -137,11 +141,11 @@ void onCanMessage2(const CanMsg& msg) {
   }
 }
 
-void onCanMessage3(const CanMsg& msg) {
-  for (auto odrive: odrives_can3) {
-    onReceive(msg, *odrive);
-  }
-}
+//void onCanMessage3(const CanMsg& msg) {
+//  for (auto odrive: odrives_can3) {
+//    onReceive(msg, *odrive);
+//  }
+//}
 
 void setup()
 {
@@ -164,7 +168,7 @@ void setup()
     sys_data_ = std::make_unique<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN1>());
     sys_data_->add(SystemData<N_ODRIVE_CAN2>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+    //sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 
     num_odrives = sizeof(odrives) / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
@@ -370,13 +374,13 @@ bool setupCAN()
     can2.setClock(CLK_60MHz);
     //can2.mailboxStatus();
 
-    can3.begin();
-    can3.setBaudRate(CAN_BAUDRATE);
-    can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
-    can3.enableMBInterrupts();
-    can3.onReceive(onCanMessage3);
-    can3.distribute();
-    can3.setClock(CLK_60MHz);
+    //can3.begin();
+    //can3.setBaudRate(CAN_BAUDRATE);
+    //can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    //can3.enableMBInterrupts();
+    //can3.onReceive(onCanMessage3);
+    //can3.distribute();
+    //can3.setClock(CLK_60MHz);
     //can3.mailboxStatus();
     
     return true;
@@ -387,7 +391,7 @@ void loop()
      // This is required on some platforms to handle incoming feedback CAN messages
     pumpEvents(can1);
     pumpEvents(can2);
-    pumpEvents(can3);
+    //pumpEvents(can3);
     //can1.mailboxStatus();
 
     parseAndProcessUDPPacket(); // receive UDP message from UP to Teensy
@@ -455,11 +459,17 @@ void parseAndProcessUDPPacket()
               cmd.deserialize(payload);
               //return std::make_unique<PositionCommand>(cmd);
               //cmd.printValue();
-              for (size_t i = 0; i < num_odrives; ++i)
-              {
-                odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[i]->setPosition(p, v_ff, t_ff); },
+              //for (size_t i = 0; i < num_odrives; ++i)
+              //{
+              //  odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[i]->setPosition(p, v_ff, t_ff); },
+              //      cmd.getCommandValue());
+              //}
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[0]->setPosition(p, 0, t_ff); },
                     cmd.getCommandValue());
-              }
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p, 0, t_ff); },
+                    cmd.getCommandValue());
+              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p, 0, t_ff); },
+                    cmd.getCommandValue());
             }
             break;
         }
