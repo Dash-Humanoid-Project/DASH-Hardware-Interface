@@ -464,12 +464,16 @@ void parseAndProcessUDPPacket()
               //  odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[i]->setPosition(p, v_ff, t_ff); },
               //      cmd.getCommandValue());
               //}
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[0]->setPosition(p, 0, t_ff); },
+              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[0]->setPosition(p[0], 0, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p, 0, t_ff); },
+              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p[1], 0, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p, 0, t_ff); },
+              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p[2], 0, t_ff); },
                     cmd.getCommandValue());
+              //odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p, 0, t_ff); },
+              //      cmd.getCommandValue());
+              //odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p, 0, t_ff); },
+              //      cmd.getCommandValue());
             }
             break;
         }

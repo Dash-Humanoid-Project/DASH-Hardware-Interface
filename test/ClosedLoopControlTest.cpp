@@ -71,12 +71,14 @@ public:
 
                 float phase = t * (TWO_PI / SINE_PERIOD);
 
-                Input_Pos_TYPE desired_position = sin(phase);
+                Input_Pos_TYPE q_1 = sin(phase);
+                Input_Pos_TYPE q_2 = -sin(phase);
+                Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
                 // TODO: look into the proper scale of velocity_ff. Setting scale = 1 leads to jumpy motion currently
                 float scale = 0.5;
                 Vel_FF_TYPE velocity_ff = scale * cos(phase) * (TWO_PI / SINE_PERIOD);
 
-                cmd_ptr = std::make_shared<PositionCommand>(desired_position, velocity_ff);
+                cmd_ptr = std::make_shared<PositionCommand>(std::array<Input_Pos_TYPE,3>{q_1,q_2,q_3});
 
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {

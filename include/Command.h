@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstring>
+#include <array>
 #include "MsgBase.h"
 
 #define Input_Pos_TYPE       float
@@ -15,12 +16,12 @@
 struct CommandBase : public MsgBase {};
 
 struct PositionCommand : public CommandBase {
-    Input_Pos_TYPE Input_Pos;
+    std::array<Input_Pos_TYPE,3> Input_Pos;
     Vel_FF_TYPE Vel_FF;
     Torque_FF_TYPE Torque_FF;
 
     // Custom constructor
-    PositionCommand(Input_Pos_TYPE p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
+    PositionCommand(std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
         : Input_Pos(p), Vel_FF(v), Torque_FF(t) {}
 
     // Default constructor (needed for deserialize)
@@ -46,12 +47,12 @@ struct PositionCommand : public CommandBase {
         std::memcpy(&Torque_FF, buffer + sizeof(Input_Pos) + sizeof(Vel_FF), sizeof(Torque_FF));
     }
 
-    std::tuple<Input_Pos_TYPE, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
+    std::tuple<std::array<Input_Pos_TYPE,3>, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
         return { Input_Pos, Vel_FF, Torque_FF };
     }
 
     void printValue() override {
-        PRINTLN("Input_Pos: ", Input_Pos,  " | Vel_FF: ", Vel_FF, " | Torque_FF: ", Torque_FF);
+        PRINTLN("Input_Pos: ", Input_Pos[0],  " | Vel_FF: ", Vel_FF, " | Torque_FF: ", Torque_FF);
     }
 };
 
