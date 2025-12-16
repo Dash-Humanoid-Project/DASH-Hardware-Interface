@@ -18,20 +18,25 @@ struct CommandBase : public MsgBase {};
 
 struct PositionCommand : public CommandBase {
     std::vector<Input_Pos_TYPE> Input_Pos;
-    Vel_FF_TYPE Vel_FF;
+    std::vector<Vel_FF_TYPE> Vel_FF;  // Changed to vector for per-motor feedforward
     Torque_FF_TYPE Torque_FF;
 
-    // Custom constructor
-    PositionCommand(std::vector<Input_Pos_TYPE> p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
-        : Input_Pos(p), Vel_FF(v), Torque_FF(t) {}
+    // Custom constructor with per-motor velocity feedforward
+    PositionCommand(std::vector<Input_Pos_TYPE> p, std::vector<Vel_FF_TYPE> v = {}, Torque_FF_TYPE t = 0)
+        : Input_Pos(p), Vel_FF(v), Torque_FF(t) {
+        // If Vel_FF is empty, resize to match Input_Pos size with zeros
+        if (Vel_FF.empty() && !Input_Pos.empty()) {
+            Vel_FF.resize(Input_Pos.size(), 0);
+        }
+    }
 
     // Default constructor (needed for deserialize)
     PositionCommand() = default;
 
     size_t dataSize() const override {
-        // Size byte + position data + vel_ff + torque_ff
+        // Size byte + position data + velocity_ff data + torque_ff
         size_t num_motors = Input_Pos.empty() ? 0 : Input_Pos.size();
-        return sizeof(uint8_t) + num_motors * sizeof(Input_Pos_TYPE) + sizeof(Vel_FF) + sizeof(Torque_FF);
+        return sizeof(uint8_t) + num_motors * sizeof(Input_Pos_TYPE) + num_motors * sizeof(Vel_FF_TYPE) + sizeof(Torque_FF);
     }
 
     MsgType getType() const override {
@@ -47,10 +52,14 @@ struct PositionCommand : public CommandBase {
         size_t pos_size = Input_Pos.size() * sizeof(Input_Pos_TYPE);
         std::memcpy(buffer + sizeof(uint8_t), Input_Pos.data(), pos_size);
 
-        // Write vel_ff and torque_ff
+        // Write velocity feedforward data
+        size_t vel_ff_size = Vel_FF.size() * sizeof(Vel_FF_TYPE);
         size_t offset = sizeof(uint8_t) + pos_size;
-        std::memcpy(buffer + offset, &Vel_FF, sizeof(Vel_FF));
-        std::memcpy(buffer + offset + sizeof(Vel_FF), &Torque_FF, sizeof(Torque_FF));
+        std::memcpy(buffer + offset, Vel_FF.data(), vel_ff_size);
+
+        // Write torque_ff
+        offset += vel_ff_size;
+        std::memcpy(buffer + offset, &Torque_FF, sizeof(Torque_FF));
     }
 
     void readFromBuffer(const uint8_t* buffer) override {
@@ -58,18 +67,24 @@ struct PositionCommand : public CommandBase {
         uint8_t num_motors;
         std::memcpy(&num_motors, buffer, sizeof(uint8_t));
 
-        // Resize vector and read position data
+        // Resize vectors and read position data
         Input_Pos.resize(num_motors);
+        Vel_FF.resize(num_motors);
+
         size_t pos_size = Input_Pos.size() * sizeof(Input_Pos_TYPE);
         std::memcpy(Input_Pos.data(), buffer + sizeof(uint8_t), pos_size);
 
-        // Read vel_ff and torque_ff
+        // Read velocity feedforward data
+        size_t vel_ff_size = Vel_FF.size() * sizeof(Vel_FF_TYPE);
         size_t offset = sizeof(uint8_t) + pos_size;
-        std::memcpy(&Vel_FF, buffer + offset, sizeof(Vel_FF));
-        std::memcpy(&Torque_FF, buffer + offset + sizeof(Vel_FF), sizeof(Torque_FF));
+        std::memcpy(Vel_FF.data(), buffer + offset, vel_ff_size);
+
+        // Read torque_ff
+        offset += vel_ff_size;
+        std::memcpy(&Torque_FF, buffer + offset, sizeof(Torque_FF));
     }
 
-    std::tuple<std::vector<Input_Pos_TYPE>, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
+    std::tuple<std::vector<Input_Pos_TYPE>, std::vector<Vel_FF_TYPE>, Torque_FF_TYPE> getCommandValue() {
         return { Input_Pos, Vel_FF, Torque_FF };
     }
 
@@ -79,7 +94,12 @@ struct PositionCommand : public CommandBase {
             std::cout << Input_Pos[i];
             if (i < Input_Pos.size() - 1) std::cout << ", ";
         }
-        std::cout << "] | Vel_FF: " << Vel_FF << " | Torque_FF: " << Torque_FF << std::endl;
+        std::cout << "] | Vel_FF: [";
+        for (size_t i = 0; i < Vel_FF.size(); ++i) {
+            std::cout << Vel_FF[i];
+            if (i < Vel_FF.size() - 1) std::cout << ", ";
+        }
+        std::cout << "] | Torque_FF: " << Torque_FF << std::endl;
     }
 };
 

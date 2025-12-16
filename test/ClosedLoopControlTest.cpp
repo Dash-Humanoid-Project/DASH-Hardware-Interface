@@ -104,16 +104,36 @@ public:
 
                 float phase = t * (TWO_PI / SINE_PERIOD);
 
+                // Position commands for each motor
                 Input_Pos_TYPE q_1 = sin(phase);
                 Input_Pos_TYPE q_2 = -sin(phase);
                 Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
-                //Input_Pos_TYPE q_2 = -sin(phase);
-                //Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
-                // TODO: look into the proper scale of velocity_ff. Setting scale = 1 leads to jumpy motion currently
-                float scale = 0.5;
-                Vel_FF_TYPE velocity_ff = scale * cos(phase) * (TWO_PI / SINE_PERIOD);
 
-                cmd_ptr = std::make_shared<PositionCommand>(std::vector<Input_Pos_TYPE>{q_1,q_2,q_3});
+                // Per-motor velocity feedforward (derivative of each position command)
+                // Motor 1: d/dt[sin(phase)] = cos(phase) * d(phase)/dt
+                float vel_ff_1 = cos(phase) * (TWO_PI / SINE_PERIOD);
+
+                // Motor 2: d/dt[-sin(phase)] = -cos(phase) * d(phase)/dt
+                float vel_ff_2 = -cos(phase) * (TWO_PI / SINE_PERIOD);
+
+                // Motor 3: d/dt[-1.5*sin(phase-π/2)] = -1.5*cos(phase-π/2) * d(phase)/dt
+                // Note: sin(x-π/2) = -cos(x), so derivative is -1.5*(-sin(x)) = 1.5*sin(x)
+                float vel_ff_3 = -1.5 * cos(phase - M_PI/2) * (TWO_PI / SINE_PERIOD);
+
+                // Scale down velocity feedforward to reduce jumpy motion
+                // TODO: Tune ODrive vel_gain and increase scale toward 1.0 for better tracking
+                float scale = 0.5;
+
+                std::vector<Vel_FF_TYPE> velocity_ff = {
+                    static_cast<Vel_FF_TYPE>(scale * vel_ff_1),
+                    static_cast<Vel_FF_TYPE>(scale * vel_ff_2),
+                    static_cast<Vel_FF_TYPE>(scale * vel_ff_3)
+                };
+
+                cmd_ptr = std::make_shared<PositionCommand>(
+                    std::vector<Input_Pos_TYPE>{q_1, q_2, q_3},
+                    velocity_ff  // Per-motor velocity feedforward
+                );
 
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {
