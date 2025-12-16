@@ -450,7 +450,10 @@ void parseAndProcessUDPPacket()
             //Serial.println("MsgType::PositionCommand");
             //Serial.print("MsgType::Position ");
             PositionCommand cmd;
-            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            // Read motor count from buffer to calculate correct payload size
+            uint8_t num_motors = data[1];
+            size_t payload_size = sizeof(uint8_t) + num_motors * sizeof(Input_Pos_TYPE) + sizeof(Vel_FF_TYPE) + sizeof(Torque_FF_TYPE);
+            std::vector<uint8_t> payload(data+1, data+1+payload_size); // w/out byte corresponding to type
             // Calculate CRC-8 for the payload
             //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
             //const uint8_t received_crc = data[cmd.dataSize()+1];
@@ -464,11 +467,11 @@ void parseAndProcessUDPPacket()
               //  odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[i]->setPosition(p, v_ff, t_ff); },
               //      cmd.getCommandValue());
               //}
-              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[0]->setPosition(p[0], 0, t_ff); },
+              odriveCommandWrapper([&](std::vector<Input_Pos_TYPE> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[0]->setPosition(p[0], 0, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p[1], 0, t_ff); },
+              odriveCommandWrapper([&](std::vector<Input_Pos_TYPE> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p[1], 0, t_ff); },
                     cmd.getCommandValue());
-              odriveCommandWrapper([&](std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p[2], 0, t_ff); },
+              odriveCommandWrapper([&](std::vector<Input_Pos_TYPE> p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p[2], 0, t_ff); },
                     cmd.getCommandValue());
               //odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p, 0, t_ff); },
               //      cmd.getCommandValue());

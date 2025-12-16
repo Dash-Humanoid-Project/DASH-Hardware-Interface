@@ -4,6 +4,8 @@
 #include "Command.h"
 #include "SystemConfig.h"
 #include "UPXtreme.h"
+#include <iostream>
+#include <fstream>
 
 #define UPXTREME_i14
 
@@ -64,7 +66,38 @@ public:
         // position command
         if (cmd_flag_ == 0)
         {
-            while (true)
+
+             //Initialize the position control measurement log (only log when values change)
+            int i = 0;
+            int loop_count = 0;
+            int max_loop_count = 5e6;
+            std::vector<std::chrono::duration<double>> time_log{};
+            time_log.reserve(100000);  // Reserve reasonable size
+
+            // Logs for ODRV0 (CAN bus 0, node 0)
+            std::vector<double> position_measurement_log_0{};
+            position_measurement_log_0.reserve(100000);
+            std::vector<double> velocity_measurement_log_0{};
+            velocity_measurement_log_0.reserve(100000);
+
+            // Logs for ODRV1 (CAN bus 0, node 1)
+            std::vector<double> position_measurement_log_1{};
+            position_measurement_log_1.reserve(100000);
+            std::vector<double> velocity_measurement_log_1{};
+            velocity_measurement_log_1.reserve(100000);
+
+            // Logs for ODRV2 (CAN bus 1, node 0)
+            std::vector<double> position_measurement_log_2{};
+            position_measurement_log_2.reserve(100000);
+            std::vector<double> velocity_measurement_log_2{};
+            velocity_measurement_log_2.reserve(100000);
+
+            // Track previous values to only log when they change
+            double prev_pos_0 = -999.0, prev_vel_0 = -999.0;
+            double prev_pos_1 = -999.0, prev_vel_1 = -999.0;
+            double prev_pos_2 = -999.0, prev_vel_2 = -999.0;
+
+            while (loop_count < max_loop_count)
             {
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
                 float t = 0.001 * duration;
@@ -74,11 +107,13 @@ public:
                 Input_Pos_TYPE q_1 = sin(phase);
                 Input_Pos_TYPE q_2 = -sin(phase);
                 Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
+                //Input_Pos_TYPE q_2 = -sin(phase);
+                //Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
                 // TODO: look into the proper scale of velocity_ff. Setting scale = 1 leads to jumpy motion currently
                 float scale = 0.5;
                 Vel_FF_TYPE velocity_ff = scale * cos(phase) * (TWO_PI / SINE_PERIOD);
 
-                cmd_ptr = std::make_shared<PositionCommand>(std::array<Input_Pos_TYPE,3>{q_1,q_2,q_3});
+                cmd_ptr = std::make_shared<PositionCommand>(std::vector<Input_Pos_TYPE>{q_1,q_2,q_3});
 
                 for (size_t id = 0; id < pc_.size(); ++id)
                 {
@@ -87,7 +122,61 @@ public:
                     pc_[id]->sys_data_->printValue();
 #endif
                 }
+#ifndef ENABLE_TIME_BENCHMARK
+                // Get current measurements
+                double curr_pos_0 = pc_[0]->sys_data_->getPosEstimateAtBusAndNode(0, 0);
+                double curr_vel_0 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(0, 0);
+                double curr_pos_1 = pc_[0]->sys_data_->getPosEstimateAtBusAndNode(0, 1);
+                double curr_vel_1 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(0, 1);
+                double curr_pos_2 = pc_[0]->sys_data_->getPosEstimateAtBusAndNode(1, 0);
+                double curr_vel_2 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(1, 0);
+
+                // Only log if any value has changed
+                if (curr_pos_0 != prev_pos_0 || curr_vel_0 != prev_vel_0 ||
+                    curr_pos_1 != prev_pos_1 || curr_vel_1 != prev_vel_1 ||
+                    curr_pos_2 != prev_pos_2 || curr_vel_2 != prev_vel_2) {
+
+                    time_log.push_back(std::chrono::steady_clock::now().time_since_epoch());
+                    position_measurement_log_0.push_back(curr_pos_0);
+                    velocity_measurement_log_0.push_back(curr_vel_0);
+                    position_measurement_log_1.push_back(curr_pos_1);
+                    velocity_measurement_log_1.push_back(curr_vel_1);
+                    position_measurement_log_2.push_back(curr_pos_2);
+                    velocity_measurement_log_2.push_back(curr_vel_2);
+
+                    prev_pos_0 = curr_pos_0;
+                    prev_vel_0 = curr_vel_0;
+                    prev_pos_1 = curr_pos_1;
+                    prev_vel_1 = curr_vel_1;
+                    prev_pos_2 = curr_pos_2;
+                    prev_vel_2 = curr_vel_2;
+
+                    i++;
+                }
+                loop_count++;
+#endif
             }
+#ifndef ENABLE_TIME_BENCHMARK
+            //Log the position control measurements to a file
+            std::cout << "Logged " << i << " measurements." << std::endl;
+            std::ofstream send_log_file("../logs/position_measurement_log.csv");
+            if (send_log_file.is_open()) {
+                // Write header
+                send_log_file << "Time,ODRV0_Pos,ODRV0_Vel,ODRV1_Pos,ODRV1_Vel,ODRV2_Pos,ODRV2_Vel\n";
+
+                // Write data for all three motors
+                for (int j = 0; j < i; ++j) {
+                    send_log_file << time_log[j].count() << ","
+                                  << position_measurement_log_0[j] << "," << velocity_measurement_log_0[j] << ","
+                                  << position_measurement_log_1[j] << "," << velocity_measurement_log_1[j] << ","
+                                  << position_measurement_log_2[j] << "," << velocity_measurement_log_2[j] << "\n";
+                }
+                send_log_file.close();
+            }
+            else {
+                std::cout << "Unable to open file for logging position control measurements." << std::endl;
+            }
+#endif
         }
         // velocity command
         if (cmd_flag_ == 1) 

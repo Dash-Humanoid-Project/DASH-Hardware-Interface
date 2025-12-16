@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <array>
+#include <iostream>
 #include "MsgBase.h"
 
 #define Input_Pos_TYPE       float
@@ -16,19 +17,21 @@
 struct CommandBase : public MsgBase {};
 
 struct PositionCommand : public CommandBase {
-    std::array<Input_Pos_TYPE,3> Input_Pos;
+    std::vector<Input_Pos_TYPE> Input_Pos;
     Vel_FF_TYPE Vel_FF;
     Torque_FF_TYPE Torque_FF;
 
     // Custom constructor
-    PositionCommand(std::array<Input_Pos_TYPE,3> p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
+    PositionCommand(std::vector<Input_Pos_TYPE> p, Vel_FF_TYPE v = 0, Torque_FF_TYPE t = 0)
         : Input_Pos(p), Vel_FF(v), Torque_FF(t) {}
 
     // Default constructor (needed for deserialize)
     PositionCommand() = default;
 
     size_t dataSize() const override {
-        return sizeof(Input_Pos) + sizeof(Vel_FF) + sizeof(Torque_FF);
+        // Size byte + position data + vel_ff + torque_ff
+        size_t num_motors = Input_Pos.empty() ? 0 : Input_Pos.size();
+        return sizeof(uint8_t) + num_motors * sizeof(Input_Pos_TYPE) + sizeof(Vel_FF) + sizeof(Torque_FF);
     }
 
     MsgType getType() const override {
@@ -36,23 +39,47 @@ struct PositionCommand : public CommandBase {
     }
 
     void writeToBuffer(uint8_t* buffer) const override {
-        std::memcpy(buffer, &Input_Pos, sizeof(Input_Pos));
-        std::memcpy(buffer + sizeof(Input_Pos), &Vel_FF, sizeof(Vel_FF));
-        std::memcpy(buffer + sizeof(Input_Pos) + sizeof(Vel_FF), &Torque_FF, sizeof(Torque_FF));
+        // Write number of motors first
+        uint8_t num_motors = static_cast<uint8_t>(Input_Pos.size());
+        std::memcpy(buffer, &num_motors, sizeof(uint8_t));
+
+        // Write position data
+        size_t pos_size = Input_Pos.size() * sizeof(Input_Pos_TYPE);
+        std::memcpy(buffer + sizeof(uint8_t), Input_Pos.data(), pos_size);
+
+        // Write vel_ff and torque_ff
+        size_t offset = sizeof(uint8_t) + pos_size;
+        std::memcpy(buffer + offset, &Vel_FF, sizeof(Vel_FF));
+        std::memcpy(buffer + offset + sizeof(Vel_FF), &Torque_FF, sizeof(Torque_FF));
     }
 
     void readFromBuffer(const uint8_t* buffer) override {
-        std::memcpy(&Input_Pos, buffer, sizeof(Input_Pos));
-        std::memcpy(&Vel_FF, buffer + sizeof(Input_Pos), sizeof(Vel_FF));
-        std::memcpy(&Torque_FF, buffer + sizeof(Input_Pos) + sizeof(Vel_FF), sizeof(Torque_FF));
+        // Read number of motors
+        uint8_t num_motors;
+        std::memcpy(&num_motors, buffer, sizeof(uint8_t));
+
+        // Resize vector and read position data
+        Input_Pos.resize(num_motors);
+        size_t pos_size = Input_Pos.size() * sizeof(Input_Pos_TYPE);
+        std::memcpy(Input_Pos.data(), buffer + sizeof(uint8_t), pos_size);
+
+        // Read vel_ff and torque_ff
+        size_t offset = sizeof(uint8_t) + pos_size;
+        std::memcpy(&Vel_FF, buffer + offset, sizeof(Vel_FF));
+        std::memcpy(&Torque_FF, buffer + offset + sizeof(Vel_FF), sizeof(Torque_FF));
     }
 
-    std::tuple<std::array<Input_Pos_TYPE,3>, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
+    std::tuple<std::vector<Input_Pos_TYPE>, Vel_FF_TYPE, Torque_FF_TYPE> getCommandValue() {
         return { Input_Pos, Vel_FF, Torque_FF };
     }
 
     void printValue() override {
-        PRINTLN("Input_Pos: ", Input_Pos[0],  " | Vel_FF: ", Vel_FF, " | Torque_FF: ", Torque_FF);
+        std::cout << "Input_Pos: [";
+        for (size_t i = 0; i < Input_Pos.size(); ++i) {
+            std::cout << Input_Pos[i];
+            if (i < Input_Pos.size() - 1) std::cout << ", ";
+        }
+        std::cout << "] | Vel_FF: " << Vel_FF << " | Torque_FF: " << Torque_FF << std::endl;
     }
 };
 
