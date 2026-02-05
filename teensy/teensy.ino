@@ -44,7 +44,7 @@ bool first_packet_recv = false;
 ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID);
 ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
 ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
-//ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
+ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
 //ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
 //ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
 //ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
@@ -54,9 +54,9 @@ ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
 //ODriveCAN* odrives_can1[] = {&odrv0, &odrv1, &odrv2};
 //ODriveCAN* odrives_can2[] = {&odrv3, &odrv4, &odrv5};
 //ODriveCAN* odrives_can3[] = {&odrv6, &odrv7, &odrv8};
-ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2}; // Make sure all ODriveCAN instances are accounted for here
+ODriveCAN* odrives[] = {&odrv0, &odrv1, &odrv2, &odrv3}; // Make sure all ODriveCAN instances are accounted for here
 ODriveCAN* odrives_can1[] = {&odrv0, &odrv1};
-ODriveCAN* odrives_can2[] = {&odrv2};
+ODriveCAN* odrives_can2[] = {&odrv2, &odrv3};
 
 template<typename Func, typename Tuple>
 void odriveCommandWrapper(Func&& f, Tuple&& args) {
@@ -99,14 +99,14 @@ struct ODriveUserData {
 ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
 ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
 ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
-//ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
+ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
 //ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
 //ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
 //ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
 //ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
 //ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
 //ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data, &odrv5_user_data, &odrv6_user_data, &odrv7_user_data, &odrv8_user_data};
-ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data};
+ODriveUserData* odrives_data[] = {&odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data};
 
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
@@ -475,6 +475,8 @@ void parseAndProcessUDPPacket()
                     cmd.getCommandValue());
               odriveCommandWrapper([&](std::vector<Input_Pos_TYPE> p, std::vector<Vel_FF_TYPE> v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p[2], v_ff[2], t_ff); },
                     cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Pos_TYPE> p, std::vector<Vel_FF_TYPE> v_ff, Torque_FF_TYPE t_ff) { odrives[3]->setPosition(p[3], v_ff[3], t_ff); },
+                    cmd.getCommandValue());
               //odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[1]->setPosition(p, 0, t_ff); },
               //      cmd.getCommandValue());
               //odriveCommandWrapper([&](Input_Pos_TYPE p, Vel_FF_TYPE v_ff, Torque_FF_TYPE t_ff) { odrives[2]->setPosition(p, 0, t_ff); },
@@ -486,7 +488,9 @@ void parseAndProcessUDPPacket()
             //Serial.print("MsgType::VelocityCommand ");
             //Serial.println(static_cast<uint8_t>(type));
             VelocityCommand cmd;
-            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            uint8_t num_motors = data[1];
+            size_t payload_size = sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE) + sizeof(Input_Torque_FF_TYPE);
+            std::vector<uint8_t> payload(data+1, data+1+payload_size); // w/out byte corresponding to type
             // Calculate CRC-8 for the payload
             //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
             //const uint8_t received_crc = data[cmd.dataSize()+1];
@@ -494,11 +498,17 @@ void parseAndProcessUDPPacket()
             if (true) {
               cmd.deserialize(payload);
               //cmd.printValue();
-              for (size_t i = 0; i < num_odrives; ++i)
-              {
-                odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrives[i]->setVelocity(v, t_ff); },
+              //for (size_t i = 0; i < num_odrives; ++i)
+              //{
+              //  odriveCommandWrapper([&](Input_Vel_TYPE v, Input_Torque_FF_TYPE t_ff) { odrives[i]->setVelocity(v, t_ff); },
+              //      cmd.getCommandValue());
+              //}
+              odriveCommandWrapper([&](std::vector<Input_Vel_TYPE> v,  Input_Torque_FF_TYPE t_ff) { odrives[0]->setVelocity(v[0], t_ff); },
                     cmd.getCommandValue());
-              }
+              odriveCommandWrapper([&](std::vector<Input_Vel_TYPE> v,  Input_Torque_FF_TYPE t_ff) { odrives[1]->setVelocity(v[1], t_ff); },
+                    cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Vel_TYPE> v,  Input_Torque_FF_TYPE t_ff) { odrives[2]->setVelocity(v[2], t_ff); },
+                    cmd.getCommandValue());
             }
             break;
         }
@@ -506,18 +516,26 @@ void parseAndProcessUDPPacket()
             //Serial.print("MsgType::Torque ");
             //Serial.println(static_cast<uint8_t>(type));
             TorqueCommand cmd;
-            std::vector<uint8_t> payload(data+1, data+cmd.dataSize()+2); // w/out byte corresponding to type
+            uint8_t num_motors = data[1];
+            size_t payload_size = sizeof(uint8_t) + num_motors * sizeof(Input_Torque_TYPE);
+            std::vector<uint8_t> payload(data+1, data+1+payload_size); // w/out byte corresponding to type
             // Calculate CRC-8 for the payload
             //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
             //const uint8_t received_crc = data[cmd.dataSize()+1];
             //if (received_crc == calculated_crc) {  
             if (true) {
-              cmd.deserialize(payload);
-              for (size_t i = 0; i < num_odrives; ++i)
-              {
-                odriveCommandWrapper([&](Input_Torque_TYPE t) { odrives[i]->setTorque(t); },
-                      cmd.getCommandValue());
-              }
+              //cmd.deserialize(payload);
+              //for (size_t i = 0; i < num_odrives; ++i)
+              //{
+              //  odriveCommandWrapper([&](Input_Torque_TYPE t) { odrives[i]->setTorque(t); },
+              //        cmd.getCommandValue());
+              //}
+              odriveCommandWrapper([&](std::vector<Input_Torque_TYPE> tau) { odrives[0]->setTorque(tau[0]); },
+                    cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Torque_TYPE> tau) { odrives[1]->setTorque(tau[1]); },
+                    cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Torque_TYPE> tau) { odrives[2]->setTorque(tau[2]); },
+                    cmd.getCommandValue());
             }
             break;
         }

@@ -92,10 +92,17 @@ public:
             std::vector<double> velocity_measurement_log_2{};
             velocity_measurement_log_2.reserve(100000);
 
+            // Logs for ODRV3 (CAN bus 1, node 1)
+            std::vector<double> position_measurement_log_3{};
+            position_measurement_log_3.reserve(100000);
+            std::vector<double> velocity_measurement_log_3{};
+            velocity_measurement_log_3.reserve(100000);
+
             // Track previous values to only log when they change
             double prev_pos_0 = -999.0, prev_vel_0 = -999.0;
             double prev_pos_1 = -999.0, prev_vel_1 = -999.0;
             double prev_pos_2 = -999.0, prev_vel_2 = -999.0;
+            double prev_pos_3 = -999.0, prev_vel_3 = -999.0;
 
             while (loop_count < max_loop_count)
             {
@@ -108,6 +115,7 @@ public:
                 Input_Pos_TYPE q_1 = sin(phase);
                 Input_Pos_TYPE q_2 = -sin(phase);
                 Input_Pos_TYPE q_3 = -1.5*(sin(phase-M_PI/2)+1);
+                Input_Pos_TYPE q_4 = -1.5*(sin(phase-M_PI/2)+1);
 
                 // Per-motor velocity feedforward (derivative of each position command)
                 // Motor 1: d/dt[sin(phase)] = cos(phase) * d(phase)/dt
@@ -120,6 +128,9 @@ public:
                 // Note: sin(x-π/2) = -cos(x), so derivative is -1.5*(-sin(x)) = 1.5*sin(x)
                 float vel_ff_3 = -1.5 * cos(phase - M_PI/2) * (TWO_PI / SINE_PERIOD);
 
+                // Motor 4: d/dt[-1.5*sin(phase-π/2)] = -1.5*cos(phase-π/2) * d(phase)/dt
+                float vel_ff_4 = -1.5 * cos(phase - M_PI/2) * (TWO_PI / SINE_PERIOD);
+
                 // Scale down velocity feedforward to reduce jumpy motion
                 // TODO: Tune ODrive vel_gain and increase scale toward 1.0 for better tracking
                 float scale = 0.5;
@@ -127,11 +138,12 @@ public:
                 std::vector<Vel_FF_TYPE> velocity_ff = {
                     static_cast<Vel_FF_TYPE>(scale * vel_ff_1),
                     static_cast<Vel_FF_TYPE>(scale * vel_ff_2),
-                    static_cast<Vel_FF_TYPE>(scale * vel_ff_3)
+                    static_cast<Vel_FF_TYPE>(scale * vel_ff_3),
+                    static_cast<Vel_FF_TYPE>(scale * vel_ff_4)
                 };
 
                 cmd_ptr = std::make_shared<PositionCommand>(
-                    std::vector<Input_Pos_TYPE>{q_1, q_2, q_3},
+                    std::vector<Input_Pos_TYPE>{q_1, q_2, q_3, q_4},
                     velocity_ff  // Per-motor velocity feedforward
                 );
 
@@ -150,11 +162,14 @@ public:
                 double curr_vel_1 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(0, 1);
                 double curr_pos_2 = pc_[0]->sys_data_->getPosEstimateAtBusAndNode(1, 0);
                 double curr_vel_2 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(1, 0);
+                double curr_pos_3 = pc_[0]->sys_data_->getPosEstimateAtBusAndNode(1, 1);
+                double curr_vel_3 = pc_[0]->sys_data_->getVelEstimateAtBusAndNode(1, 1);
 
                 // Only log if any value has changed
                 if (curr_pos_0 != prev_pos_0 || curr_vel_0 != prev_vel_0 ||
                     curr_pos_1 != prev_pos_1 || curr_vel_1 != prev_vel_1 ||
-                    curr_pos_2 != prev_pos_2 || curr_vel_2 != prev_vel_2) {
+                    curr_pos_2 != prev_pos_2 || curr_vel_2 != prev_vel_2 ||
+                    curr_pos_3 != prev_pos_3 || curr_vel_3 != prev_vel_3) {
 
                     time_log.push_back(std::chrono::steady_clock::now().time_since_epoch());
                     position_measurement_log_0.push_back(curr_pos_0);
@@ -163,6 +178,8 @@ public:
                     velocity_measurement_log_1.push_back(curr_vel_1);
                     position_measurement_log_2.push_back(curr_pos_2);
                     velocity_measurement_log_2.push_back(curr_vel_2);
+                    position_measurement_log_3.push_back(curr_pos_3);
+                    velocity_measurement_log_3.push_back(curr_vel_3);
 
                     prev_pos_0 = curr_pos_0;
                     prev_vel_0 = curr_vel_0;
@@ -170,6 +187,8 @@ public:
                     prev_vel_1 = curr_vel_1;
                     prev_pos_2 = curr_pos_2;
                     prev_vel_2 = curr_vel_2;
+                    prev_pos_3 = curr_pos_3;
+                    prev_vel_3 = curr_vel_3;
 
                     i++;
                 }
@@ -182,14 +201,15 @@ public:
             std::ofstream send_log_file("../logs/position_measurement_log.csv");
             if (send_log_file.is_open()) {
                 // Write header
-                send_log_file << "Time,ODRV0_Pos,ODRV0_Vel,ODRV1_Pos,ODRV1_Vel,ODRV2_Pos,ODRV2_Vel\n";
+                send_log_file << "Time,ODRV0_Pos,ODRV0_Vel,ODRV1_Pos,ODRV1_Vel,ODRV2_Pos,ODRV2_Vel,ODRV3_Pos,ODRV3_Vel\n";
 
                 // Write data for all three motors
                 for (int j = 0; j < i; ++j) {
                     send_log_file << time_log[j].count() << ","
                                   << position_measurement_log_0[j] << "," << velocity_measurement_log_0[j] << ","
                                   << position_measurement_log_1[j] << "," << velocity_measurement_log_1[j] << ","
-                                  << position_measurement_log_2[j] << "," << velocity_measurement_log_2[j] << "\n";
+                                  << position_measurement_log_2[j] << "," << velocity_measurement_log_2[j] << ","
+                                  << position_measurement_log_3[j] << "," << velocity_measurement_log_3[j] << "\n";
                 }
                 send_log_file.close();
             }
@@ -204,7 +224,10 @@ public:
             while (true)
             {
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-                Input_Vel_TYPE desired_velocity = 0.5;
+                Input_Vel_TYPE v1 = 0;
+                Input_Vel_TYPE v2 = 0;
+                Input_Vel_TYPE v3 = 0;
+                std::vector<Input_Vel_TYPE> desired_velocity = {v1, v2, v3};
                 vcmd_ptr = std::make_shared<VelocityCommand>(desired_velocity);
 
                 for (size_t id = 0; id < pc_.size(); ++id)
@@ -222,7 +245,10 @@ public:
             while (true)
             {
                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-                float desired_torque = 0.32;
+                Input_Torque_TYPE tau1 = 0;
+                Input_Torque_TYPE tau2 = 0;
+                Input_Torque_TYPE tau3 = 0;
+                std::vector<Input_Torque_TYPE> desired_torque = {tau1, tau2, tau3};
                 tcmd_ptr = std::make_shared<TorqueCommand>(desired_torque);
 
                 for (size_t id = 0; id < pc_.size(); ++id)
