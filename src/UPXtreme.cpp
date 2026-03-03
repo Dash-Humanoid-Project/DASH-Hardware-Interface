@@ -65,29 +65,49 @@ UPXtreme::UPXtreme(const std::string &teensy_IP, const std::string &interface, i
     sys_data_ = std::make_shared<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN1>());
     sys_data_->add(SystemData<N_ODRIVE_CAN2>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN3>());
+    //sys_data_->add(SystemData<N_ODRIVE_CAN3>());
 }
 
 void UPXtreme::start()
 {
+    std::cout << "DEBUG PC: Starting UPXtreme threads..." << std::endl;
+    std::cout.flush();
+
     // Start the server in a separate thread
     receive_thread = std::thread([&]()
     {
-        std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
-		while (true) {
-			asio::ip::udp::endpoint client_endpoint;
-			size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
-			handleUDPPacket(client_endpoint, {recv_buffer.begin(), recv_buffer.begin() + bytes_received});
+        try {
+            std::cout << "DEBUG PC: Receive thread started, waiting for UDP packets..." << std::endl;
+            std::cout.flush();
+            std::vector<uint8_t> recv_buffer(sys_data_->dataSize());
+            while (!stop_threads) {
+                asio::ip::udp::endpoint client_endpoint;
+                size_t bytes_received = receive_socket.receive_from(asio::buffer(recv_buffer), client_endpoint);
+
+                // Only process if we're not shutting down and got valid data
+                if (!stop_threads && bytes_received == sys_data_->dataSize()) {
+                    handleUDPPacket(client_endpoint, {recv_buffer.begin(), recv_buffer.begin() + bytes_received});
+                }
 
 #ifdef ENABLE_TIME_BENCHMARK
             receive_counter++;
 #endif
             }
+        } catch (const std::exception& e) {
+            // Socket closed during shutdown is expected
+            if (!stop_threads) {
+                std::cerr << "DEBUG PC: Receive thread exception: " << e.what() << std::endl;
+                std::cerr.flush();
+            }
+        }
+        std::cout << "DEBUG PC: Receive thread exiting..." << std::endl;
 	});
 
     send_thread = std::thread([&]()
 	{
-        while (true) {
+        static int send_count = 0;
+        static bool first_msg = true;
+        while (!stop_threads) {
             // Serialize the SystemCommand object
             if(sys_command_)
             {
@@ -95,9 +115,13 @@ void UPXtreme::start()
                 std::vector<uint8_t> serialized_data = sys_command_->serializeWithHeader();
                 sendToTeensy(serialized_data, serialized_data.size());
 
+                send_count++;
+                // Removed debug spam
             }
-            else
+            else if (first_msg) {
                 std::cout << "sys_command_ is not initialized\n";
+                first_msg = false;
+            }
 
             std::this_thread::sleep_for(std::chrono::microseconds(30));
 
@@ -105,12 +129,13 @@ void UPXtreme::start()
             send_counter++;
 #endif
         }
+        std::cout << "DEBUG PC: Send thread exiting..." << std::endl;
     });
 
 #ifdef ENABLE_TIME_BENCHMARK
     benchmark_thread = std::thread([&]()
     {
-        while (true) {
+        while (!stop_threads) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
 
             uint32_t receive_count = receive_counter.exchange(0);
@@ -151,6 +176,13 @@ void UPXtreme::handleUDPPacket(const udp::endpoint &client_endpoint, const std::
 {
     // Unpack the received data
     std::vector<uint8_t> data_list(data.begin(), data.end());
+    bool success = sys_data_->deserialize(data_list);
 
-    sys_data_->deserialize(data_list);
+    // Only print errors, not normal operation
+    static int packet_count = 0;
+    packet_count++;
+
+    if (!success && packet_count % 100 == 0) {
+        std::cout << "Warning: Deserialization failed for packet #" << packet_count << std::endl;
+    }
 }

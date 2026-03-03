@@ -36,6 +36,7 @@ private:
 
     std::atomic<uint32_t> receive_counter{0};
     std::atomic<uint32_t> send_counter{0};
+    std::atomic<bool> stop_threads{false};
 
 public:
 	// TODO(@nicholasadr): move to private
@@ -65,6 +66,22 @@ public:
         sys_command_ = cmd;
     }
 
+    // Send idle command to put all ODrives into IDLE state
+    void sendIdleCommand() {
+        auto idle_cmd = std::make_shared<IdleCommand>();
+        std::vector<uint8_t> serialized_data = idle_cmd->serializeWithHeader();
+        sendToTeensy(serialized_data, serialized_data.size());
+        std::cout << "Sent IDLE command to Teensy" << std::endl;
+    }
+
+    // Send start command to put all ODrives into CLOSED_LOOP_CONTROL state
+    void sendStartCommand() {
+        auto start_cmd = std::make_shared<StartCommand>();
+        std::vector<uint8_t> serialized_data = start_cmd->serializeWithHeader();
+        sendToTeensy(serialized_data, serialized_data.size());
+        std::cout << "Sent START command to Teensy" << std::endl;
+    }
+
     void sendToTeensy(const std::vector<uint8_t> &data, const int data_size);
 
     void handleUDPPacket(const asio::ip::udp::endpoint &client_endpoint, const std::vector<uint8_t> &data);
@@ -73,10 +90,18 @@ public:
 
     void end()
     {
-		// wait for threads to finish completely
-        joinThreads();
-		// now that the threads are done, we can close the sockets
-        closeSockets();
+        // Signal threads to stop
+        stop_threads = true;
+        // Join the send thread (it checks stop_threads and exits quickly)
+        if (send_thread.joinable()) {
+            send_thread.join();
+        }
+        // Detach the receive thread since synchronous receive_from can't be
+        // reliably interrupted. Process exit will clean it up.
+        if (receive_thread.joinable()) {
+            receive_thread.detach();
+        }
+        // Don't bother closing sockets - process is about to exit
     }
 
     void closeSockets()
@@ -98,18 +123,6 @@ public:
         catch (const std::exception &e)
         {
             std::cerr << "Error closing receive_socket: " << e.what() << std::endl;
-        }
-    }
-
-    void joinThreads()
-    {
-        if (receive_thread.joinable())
-        {
-            receive_thread.join();
-        }
-        if (send_thread.joinable())
-        {
-            send_thread.join();
         }
     }
 

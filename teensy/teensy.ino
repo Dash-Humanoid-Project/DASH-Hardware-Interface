@@ -20,9 +20,9 @@ FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
 FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
-IPAddress staticIP{10, 176, 32, 33};
-IPAddress subnetMask{255, 255, 255, 0};
-IPAddress gateway{10, 176, 32, 1};
+IPAddress staticIP(10, 176, 32, 33);
+IPAddress subnetMask(255, 255, 255, 0);
+IPAddress gateway(10, 176, 32, 1);
 
 constexpr uint32_t kDHCPTimeout = 15000; // 15 seconds
 constexpr uint16_t teensy_udp_port_listening = 8000;
@@ -66,15 +66,7 @@ void odriveCommandWrapper(Func&& f, Tuple&& args) {
 void printIPAddress()
 {
     IPAddress ip = Ethernet.localIP();
-    printf("    Local IP     = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
-    ip = Ethernet.subnetMask();
-    printf("    Subnet mask  = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
-    ip = Ethernet.broadcastIP();
-    printf("    Broadcast IP = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
-    ip = Ethernet.gatewayIP();
-    printf("    Gateway      = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
-    ip = Ethernet.dnsServerIP();
-    printf("    DNS          = %u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
+    printf("%u.%u.%u.%u\r\n", ip[0], ip[1], ip[2], ip[3]);
 }
 
 std::unique_ptr<SystemDataContainer> sys_data_;
@@ -113,6 +105,27 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
   odrv_user_data->last_heartbeat = msg;
   odrv_user_data->received_heartbeat = true;
+
+  // Check for errors or state changes
+  static int heartbeat_count = 0;
+  if (++heartbeat_count % 5000 == 0) {
+    if (msg.Axis_State != ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL) {
+      Serial.print("WARNING: ODrive bus=");
+      Serial.print(odrv_user_data->bus_idx_);
+      Serial.print(" node=");
+      Serial.print(odrv_user_data->node_idx_);
+      Serial.print(" NOT in closed loop! State=");
+      Serial.println(msg.Axis_State);
+    }
+    if (msg.Axis_Error != 0) {
+      Serial.print("ERROR: ODrive bus=");
+      Serial.print(odrv_user_data->bus_idx_);
+      Serial.print(" node=");
+      Serial.print(odrv_user_data->node_idx_);
+      Serial.print(" has error code: 0x");
+      Serial.println(msg.Axis_Error, HEX);
+    }
+  }
 }
 
 // Called every time a feedback message arrives from the ODrive
@@ -120,6 +133,19 @@ void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
   ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
   odrv_user_data->received_feedback = true;
   sys_data_->setEncoderEstimateAtBusAndNode(msg.Pos_Estimate, msg.Vel_Estimate, odrv_user_data->bus_idx_, odrv_user_data->node_idx_);
+
+  // DEBUG: Print first few feedbacks
+  static int feedback_count = 0;
+  if (++feedback_count <= 10) {
+    Serial.print("FB: bus=");
+    Serial.print(odrv_user_data->bus_idx_);
+    Serial.print(" node=");
+    Serial.print(odrv_user_data->node_idx_);
+    Serial.print(" pos=");
+    Serial.print(msg.Pos_Estimate);
+    Serial.print(" vel=");
+    Serial.println(msg.Vel_Estimate);
+  }
 }
 
 // Called for every message that arrives on the CAN bus
@@ -245,10 +271,16 @@ void setup()
       Serial.print(" [odrv");
       Serial.print(i);
       Serial.print("] ");
-    }
+    }           
     Serial.println("");
-  
-    // enabling closed loop control
+
+    // DON'T auto-enable closed loop control - wait for --start command from PC
+    // This prevents jerking on startup
+    Serial.println("ODrives found. Ready for commands.");
+    Serial.println("Run './closed_loop_test --start' on PC to enable closed-loop control.");
+
+    /*
+    // Old auto-enable code (commented out to prevent startup jerk)
     Serial.print("Enabling closed-loop control: ");
     for (size_t i = 0; i < num_odrives; ++i)
     {
@@ -274,20 +306,14 @@ void setup()
       Serial.print("] ");
     }
     Serial.println("");
-    
+    */
+
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
 }
 
 bool setupEthernetWithStaticIP()
 {
-    // Fetch MAC address out of the Teensy
-    uint8_t mac[6];
-    Ethernet.macAddress(mac);
-    printf("MAC = %02x:%02x:%02x:%02x:%02x:%02x\r\n",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-
     // Show whether a cable is plugged in or not
     Ethernet.onLinkState([](bool state)
     {
@@ -296,17 +322,12 @@ bool setupEthernetWithStaticIP()
       else
         digitalWrite(LED_BUILTIN, LOW);
 
-      printf("[Ethernet] Link %s\r\n", state ? "ON" : "OFF");
     });
 
     // Static IP
-    printf("Starting Ethernet with static IP...\r\n");
     if (!Ethernet.begin(staticIP, subnetMask, gateway)) {
-      printf("Failed to start Ethernet\r\n");
       return false;
     }
-
-    printf("Ethernet speed: %d\r\n", Ethernet.linkSpeed());
 
     printIPAddress();
 
@@ -408,22 +429,16 @@ void loop()
 
     loop_count++;
 
-    if (print_timer >= 5000)
-    {
-      double avg_loop_duration_mcs = sum_loop_duration_mcs / loop_count;
-      double avg_time_mcs_parse_udp_msg = sum_time_mcs_parse_udp_msg / loop_count;
-      double avg_time_mcs_send_CAN_command = sum_time_mcs_send_CAN_command / loop_count;
-      double avg_time_mcs_send_udp_msg = sum_time_mcs_send_udp_msg / loop_count;
-      double avg_freq = 1000000/avg_loop_duration_mcs;
-      Serial.printf("Avg frequency: %.2f Hz | Parse UDP msg: %.2f mcs | Send CAN cmd: %.2f mcs | Send UDP msg: %.2f mcs", avg_freq, avg_time_mcs_parse_udp_msg, avg_time_mcs_send_CAN_command, avg_time_mcs_send_udp_msg);
-      Serial.println();
-      loop_count = 0;
-      sum_loop_duration_mcs = 0;
-      sum_time_mcs_parse_udp_msg = 0;
-      sum_time_mcs_send_CAN_command = 0;
-      sum_time_mcs_send_udp_msg = 0;
-      print_timer = 0;
-    }
+    // Periodic stats disabled to save memory
+    // if (print_timer >= 5000)
+    // {
+    //   loop_count = 0;
+    //   sum_loop_duration_mcs = 0;
+    //   sum_time_mcs_parse_udp_msg = 0;
+    //   sum_time_mcs_send_CAN_command = 0;
+    //   sum_time_mcs_send_udp_msg = 0;
+    //   print_timer = 0;
+    // }
 }
 
 void parseAndProcessUDPPacket()
@@ -447,8 +462,15 @@ void parseAndProcessUDPPacket()
         // the switch case only adds about 0.4 mcs
         switch (type) {
         case MsgType::PositionCommand: {
-            //Serial.println("MsgType::PositionCommand");
-            //Serial.print("MsgType::Position ");
+            static uint8_t mode = 0;
+
+            if (mode != 3) {
+              for (size_t i = 0; i < num_odrives; ++i) {
+                odrives[i]->setControllerMode(3, 1);
+              }
+              mode = 3;
+            }
+
             PositionCommand cmd;
             // Read motor count from buffer to calculate correct payload size
             uint8_t num_motors = data[1];
@@ -485,8 +507,14 @@ void parseAndProcessUDPPacket()
             break;
         }
         case MsgType::VelocityCommand: {
-            //Serial.print("MsgType::VelocityCommand ");
-            //Serial.println(static_cast<uint8_t>(type));
+            static uint8_t mode = 0;
+            if (mode != 2) {
+              for (size_t i = 0; i < num_odrives; ++i) {
+                odrives[i]->setControllerMode(2, 1);
+              }
+              mode = 2;
+            }
+
             VelocityCommand cmd;
             uint8_t num_motors = data[1];
             size_t payload_size = sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE) + sizeof(Input_Torque_FF_TYPE);
@@ -509,12 +537,20 @@ void parseAndProcessUDPPacket()
                     cmd.getCommandValue());
               odriveCommandWrapper([&](std::vector<Input_Vel_TYPE> v,  Input_Torque_FF_TYPE t_ff) { odrives[2]->setVelocity(v[2], t_ff); },
                     cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Vel_TYPE> v,  Input_Torque_FF_TYPE t_ff) { odrives[3]->setVelocity(v[3], t_ff); },
+                    cmd.getCommandValue());
             }
             break;
         }
         case MsgType::TorqueCommand: {
-            //Serial.print("MsgType::Torque ");
-            //Serial.println(static_cast<uint8_t>(type));
+            static uint8_t mode = 0;
+            if (mode != 1) {
+              for (size_t i = 0; i < num_odrives; ++i) {
+                odrives[i]->setControllerMode(1, 1);
+              }
+              mode = 1;
+            }
+
             TorqueCommand cmd;
             uint8_t num_motors = data[1];
             size_t payload_size = sizeof(uint8_t) + num_motors * sizeof(Input_Torque_TYPE);
@@ -522,9 +558,9 @@ void parseAndProcessUDPPacket()
             // Calculate CRC-8 for the payload
             //uint8_t calculated_crc = calculate_crc8(payload.data(), payload.size());
             //const uint8_t received_crc = data[cmd.dataSize()+1];
-            //if (received_crc == calculated_crc) {  
+            //if (received_crc == calculated_crc) {
             if (true) {
-              //cmd.deserialize(payload);
+              cmd.deserialize(payload);  // Fixed: was commented out!
               //for (size_t i = 0; i < num_odrives; ++i)
               //{
               //  odriveCommandWrapper([&](Input_Torque_TYPE t) { odrives[i]->setTorque(t); },
@@ -536,7 +572,28 @@ void parseAndProcessUDPPacket()
                     cmd.getCommandValue());
               odriveCommandWrapper([&](std::vector<Input_Torque_TYPE> tau) { odrives[2]->setTorque(tau[2]); },
                     cmd.getCommandValue());
+              odriveCommandWrapper([&](std::vector<Input_Torque_TYPE> tau) { odrives[3]->setTorque(tau[3]); },
+                    cmd.getCommandValue());
             }
+            break;
+        }
+        case MsgType::IdleCommand: {
+            Serial.println("Received IDLE command - putting all ODrives into IDLE state");
+            for (size_t i = 0; i < num_odrives; ++i) {
+                odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
+            }
+            Serial.println("All ODrives are now IDLE");
+            break;
+        }
+        case MsgType::StartCommand: {
+            Serial.println("Received START command - putting all ODrives into CLOSED_LOOP_CONTROL");
+            for (size_t i = 0; i < num_odrives; ++i) {
+                odrives[i]->clearErrors();
+                delay(1);
+                odrives[i]->setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
+                delay(10);
+            }
+            Serial.println("All ODrives are now in CLOSED_LOOP_CONTROL");
             break;
         }
         default: {
@@ -570,6 +627,19 @@ void resetODriveData()
 
 void sendUDPPacket()
 {
+    static int send_count = 0;
+    static int check_count = 0;
+
+    if (++check_count % 500 == 0) {
+      Serial.print("UDP check: sent=");
+      Serial.print(send_count);
+      Serial.print(" feedback=[");
+      for (size_t i = 0; i < num_odrives; ++i) {
+        Serial.print(odrives_data[i]->received_feedback ? "1" : "0");
+      }
+      Serial.println("]");
+    }
+
     if (receivedFeedbackOnAllODrives())
     {
       resetODriveData();
@@ -580,6 +650,12 @@ void sendUDPPacket()
       if (!udp.send("10.176.32.14", PC_udp_port_listening, buffer, sizeof(buffer)))
       {
           printf("Error sending udp from Teensy\n");
+      } else {
+          send_count++;
+          if (send_count <= 5 || send_count % 100 == 0) {
+            Serial.print("Sent UDP #");
+            Serial.println(send_count);
+          }
       }
     }
 }

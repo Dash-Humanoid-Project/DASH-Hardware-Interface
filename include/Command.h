@@ -197,3 +197,55 @@ struct TorqueCommand : public CommandBase {
         std::cout << "]" << std::endl;
     }
 };
+
+struct IdleCommand : public CommandBase {
+    // No data needed - just a signal to idle all motors
+
+    IdleCommand() = default;
+
+    size_t dataSize() const override {
+        return 0;  // No payload
+    }
+
+    MsgType getType() const override {
+        return MsgType::IdleCommand;
+    }
+
+    void writeToBuffer(uint8_t* buffer) const override {
+        // No data to write
+    }
+
+    void readFromBuffer(const uint8_t* buffer) override {
+        // No data to read
+    }
+
+    void printValue() override {
+        std::cout << "IdleCommand" << std::endl;
+    }
+};
+
+struct StartCommand : public CommandBase {
+    // No data needed - just a signal to enable closed-loop control
+
+    StartCommand() = default;
+
+    size_t dataSize() const override {
+        return 0;  // No payload
+    }
+
+    MsgType getType() const override {
+        return MsgType::StartCommand;
+    }
+
+    void writeToBuffer(uint8_t* buffer) const override {
+        // No data to write
+    }
+
+    void readFromBuffer(const uint8_t* buffer) override {
+        // No data to read
+    }
+
+    void printValue() override {
+        std::cout << "StartCommand" << std::endl;
+    }
+};

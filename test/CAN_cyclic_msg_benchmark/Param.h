@@ -13,13 +13,13 @@
 #define N_CAN 3
 
 #define N_ODRIVE_CAN1 2
-#define N_ODRIVE_CAN2 1
+#define N_ODRIVE_CAN2 2
 #define N_ODRIVE_CAN3 0
 
 #define ODRV0_CAN_ORDER_ID 0
 #define ODRV1_CAN_ORDER_ID 1
 #define ODRV2_CAN_ORDER_ID 0
-#define ODRV3_CAN_ORDER_ID 0
+#define ODRV3_CAN_ORDER_ID 1
 #define ODRV4_CAN_ORDER_ID 1
 #define ODRV5_CAN_ORDER_ID 2
 #define ODRV6_CAN_ORDER_ID 0

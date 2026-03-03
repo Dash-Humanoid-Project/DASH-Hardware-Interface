@@ -9,6 +9,8 @@ enum class MsgType : uint8_t {
     VelocityCommand = 0x02,
     TorqueCommand   = 0x03,
     SystemData      = 0x04,
+    IdleCommand     = 0x05,
+    StartCommand    = 0x06,
 };
 
 struct MsgBase {
