@@ -1,3 +1,15 @@
+// ===== Teensy 2 — Right leg firmware =====
+// IP: 10.176.32.34   Port: 8001
+// ODrive node IDs: 5 (r_hip_yaw), 6 (r_hip_roll), 7 (r_hip_pitch), 8 (r_knee)
+// CAN1: nodes 5, 6  |  CAN2: nodes 7, 8
+//
+// Generated from teensy/teensy.ino (Teensy 1, left leg) with these changes:
+//   - staticIP → 10.176.32.34
+//   - teensy_udp_port_listening / PC_udp_port_listening → 8001
+//   - ODrive objects and user data → odrv4..7
+//   - sys_data_ initialised with N_ODRIVE_CAN3, N_ODRIVE_CAN4
+//   - CAN1 mailbox filters updated for node IDs 4 and 5
+
 #define TEENSY_4_1
 
 #include <FlexCAN_T4.h>
@@ -20,31 +32,27 @@ using namespace qindesign::network;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
-FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
-// ----- Network config -----
-IPAddress staticIP(10, 176, 32, 33);
+// ----- Network config (right leg) -----
+IPAddress staticIP(10, 176, 32, 34);
 IPAddress subnetMask(255, 255, 255, 0);
 IPAddress gateway(10, 176, 32, 1);
 
 constexpr uint32_t kDHCPTimeout = 15000;
-constexpr uint16_t teensy_udp_port_listening = 8000;
-constexpr uint16_t PC_udp_port_listening = 8000;
+constexpr uint16_t teensy_udp_port_listening = 8001;
+constexpr uint16_t PC_udp_port_listening = 8001;
 
-// A4: PC address is learned from the first incoming UDP packet.
-// Avoids hardcoding an IP that requires a reflash to change.
+// PC address is learned from the first incoming UDP packet.
 IPAddress pc_ip_;
 bool pc_ip_known_ = false;
 
 EthernetUDP udp;
 bool first_packet_recv = false;
 
-// A2: Single shared mode variable across all command cases.
-// Prevents stale per-case statics from skipping setControllerMode()
-// calls when the user switches modes and switches back.
+// Single shared mode variable across all command cases.
 static uint8_t current_mode = 0;
 
-// A8: Timing / diagnostics
+// Timing / diagnostics
 uint32_t loop_count = 0;
 double sum_loop_duration_mcs = 0;
 double sum_time_mcs_parse_udp_msg = 0;
@@ -53,22 +61,18 @@ double sum_time_mcs_send_udp_msg = 0;
 double prev_time_mcs = 0;
 elapsedMillis print_timer;
 
-// A7: Static payload buffer — avoids heap allocation at 500 Hz.
+// Static payload buffer — avoids heap allocation at 500 Hz.
 static uint8_t payload_buf[MAX_CMD_PAYLOAD_SIZE];
 
-// ----- ODrive objects -----
-ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID);
-ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
-ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
-ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
-//ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
-//ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
-//ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
-//ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
+// ----- ODrive objects (right leg: nodes 5-8) -----
+ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
+ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
+ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
+ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
 
-ODriveCAN* odrives[]      = {&odrv0, &odrv1, &odrv2, &odrv3};
-ODriveCAN* odrives_can1[] = {&odrv0, &odrv1};
-ODriveCAN* odrives_can2[] = {&odrv2, &odrv3};
+ODriveCAN* odrives[]      = {&odrv5, &odrv6, &odrv7, &odrv8};
+ODriveCAN* odrives_can1[] = {&odrv5, &odrv6};
+ODriveCAN* odrives_can2[] = {&odrv7, &odrv8};
 
 std::unique_ptr<SystemDataContainer> sys_data_;
 size_t num_odrives = 0;
@@ -80,6 +84,7 @@ struct ODriveUserData {
 
     Heartbeat_msg_t last_heartbeat;
     bool received_heartbeat = false;
+    bool is_active = false;  // set true if heartbeat received during setup
     Get_Encoder_Estimates_msg_t last_feedback;
     bool received_feedback = false;
     int bus_idx_;
@@ -87,18 +92,14 @@ struct ODriveUserData {
     FlexCAN_T4_Base* can_ptr_;
 };
 
-ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
-ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
-ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
-ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
-//ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
-//ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
-//ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
-//ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
+ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
+ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
+ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
+ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
 
 ODriveUserData* odrives_data[] = {
-    &odrv0_user_data, &odrv1_user_data,
-    &odrv2_user_data, &odrv3_user_data
+    &odrv5_user_data, &odrv6_user_data,
+    &odrv7_user_data, &odrv8_user_data
 };
 
 // Called every time a Heartbeat message arrives from the ODrive
@@ -157,10 +158,6 @@ void onCanMessage2(const CanMsg& msg) {
     for (auto odrive: odrives_can2) { onReceive(msg, *odrive); }
 }
 
-//void onCanMessage3(const CanMsg& msg) {
-//    for (auto odrive: odrives_can3) { onReceive(msg, *odrive); }
-//}
-
 // ===== Setup =====
 
 void setup()
@@ -176,8 +173,8 @@ void setup()
     delay(2000);
 
     sys_data_ = std::make_unique<SystemDataContainer>();
-    sys_data_->add(SystemData<N_ODRIVE_CAN1>());
-    sys_data_->add(SystemData<N_ODRIVE_CAN2>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN3>());  // right leg CAN1: r_hip_yaw + r_hip_roll
+    sys_data_->add(SystemData<N_ODRIVE_CAN4>());  // right leg CAN2: r_hip_pitch + r_knee
 
     num_odrives      = sizeof(odrives)      / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
@@ -215,25 +212,32 @@ void setup()
 
     Serial.print("Found ODrives: ");
     for (size_t i = 0; i < num_odrives; ++i) {
-        // Wait with a 5s timeout rather than spinning forever on a missing ODrive
         uint32_t deadline = millis() + 5000;
         while (!odrives_data[i]->received_heartbeat && millis() < deadline) {
             pumpEvents(*odrives_data[i]->can_ptr_);
             delay(1);
         }
         if (!odrives_data[i]->received_heartbeat) {
-            Serial.print(" [odrv"); Serial.print(i); Serial.print(" TIMEOUT!]");
+            Serial.print(" [odrv"); Serial.print(i + 5); Serial.print(" TIMEOUT!]");
         } else {
-            Serial.print(" [odrv"); Serial.print(i); Serial.print("]");
+            Serial.print(" [odrv"); Serial.print(i + 5); Serial.print("]");
         }
     }
     Serial.println("");
+
+    // Mark which ODrives responded — only these are used for feedback gating
+    int active_count = 0;
+    for (size_t i = 0; i < num_odrives; ++i) {
+        odrives_data[i]->is_active = odrives_data[i]->received_heartbeat;
+        if (odrives_data[i]->is_active) active_count++;
+    }
+    Serial.print("Active ODrives: "); Serial.println(active_count);
 
     Serial.println("ODrives found. Ready for commands.");
     Serial.println("Run './closed_loop_test --start' on PC to enable closed-loop control.");
 
     pinMode(LED_BUILTIN, OUTPUT);
-    Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
+    Serial.println("PC<UDP>Teensy2<CAN>ODrivePro setup is complete.");
 }
 
 bool setupEthernetWithStaticIP()
@@ -256,36 +260,43 @@ bool setupEthernetWithStaticIP()
 
 bool setupCAN()
 {
-    // CAN1: manual mailbox assignment for left-leg node IDs 0–1
+    // CAN1: manual mailbox assignment for right-leg node IDs 5–6
+    // CAN frame ID = (node_id << 5) | cmd_id
+    //   node 5 encoder (cmd 0x09): 5*32+9  = 0x0A9
+    //   node 6 encoder (cmd 0x09): 6*32+9  = 0x0C9
+    //   node 5 heartbeat (cmd 0x01): 5*32+1 = 0x0A1
+    //   node 6 heartbeat (cmd 0x01): 6*32+1 = 0x0C1
+    //   node 5 cmd 0x05: 5*32+5 = 0x0A5
+    //   node 6 cmd 0x05: 6*32+5 = 0x0C5
     can1.begin();
     can1.setBaudRate(CAN_BAUDRATE);
     can1.setMaxMB(20);
 
-    // High-frequency IDs — 2 mailboxes each for buffering
-    uint16_t highFreqIDs[] = { 0x009, 0x029, 0x049 };
+    // High-frequency mailboxes (2 per ID for buffering)
+    uint16_t highFreqIDs[] = { 0x0A9, 0x0C9 };
     int mb = 0;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         can1.setMB(mb, RX); can1.setMBFilter(mb, highFreqIDs[i]); mb++;
         can1.setMB(mb, RX); can1.setMBFilter(mb, highFreqIDs[i]); mb++;
     }
 
-    // Lower-frequency IDs — 1 mailbox each
-    uint16_t lowFreqIDs[] = { 0x001, 0x021, 0x041, 0x005, 0x025, 0x045 };
-    for (int i = 0; i < 6; i++) {
+    // Lower-frequency mailboxes
+    uint16_t lowFreqIDs[] = { 0x0A1, 0x0C1, 0x0A5, 0x0C5 };
+    for (int i = 0; i < 4; i++) {
         can1.setMB(mb, RX); can1.setMBFilter(mb, lowFreqIDs[i]); mb++;
     }
 
     // Wildcard fallback mailboxes
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         can1.setMB(mb, RX); can1.setMBFilter(mb, 0x000); mb++;
     }
-    for (int i = 0; i < 5; i++) { can1.setMB(mb, TX); mb++; }
+    for (int i = 0; i < 8; i++) { can1.setMB(mb, TX); mb++; }
 
     can1.enableMBInterrupts();
     can1.onReceive(onCanMessage1);
     can1.setClock(CLK_60MHz);
 
-    // CAN2: auto-distribute for left-leg node IDs 2–3
+    // CAN2: auto-distribute for right-leg node IDs 6–7
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
     can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
@@ -316,7 +327,7 @@ void loop()
     prev_time_mcs = current_time_mcs;
     loop_count++;
 
-    // A8: Periodic diagnostics — print stats every 5 seconds
+    // Periodic diagnostics every 5 seconds
     if (print_timer >= 5000) {
         if (loop_count > 0) {
             Serial.print("Loop: avg=");
@@ -351,7 +362,7 @@ void parseAndProcessUDPPacket()
     if (size >= 0) {
         const uint8_t* data = udp.data();
 
-        // A4: learn PC IP from the first incoming packet
+        // Learn PC IP from the first incoming packet
         if (!pc_ip_known_) {
             pc_ip_ = udp.remoteIP();
             pc_ip_known_ = true;
@@ -366,7 +377,6 @@ void parseAndProcessUDPPacket()
         switch (type) {
 
         case MsgType::PositionCommand: {
-            // A2: shared current_mode (not per-case static)
             if (current_mode != 3) {
                 for (size_t i = 0; i < num_odrives; ++i)
                     odrives[i]->setControllerMode(3, 1);
@@ -379,8 +389,6 @@ void parseAndProcessUDPPacket()
                 + num_motors * sizeof(Vel_FF_TYPE)
                 + sizeof(Torque_FF_TYPE);
 
-            // A1: CRC check — packet layout: [type(1)] [payload(payload_size)] [crc(1)]
-            // CRC covers type byte + payload, matching PC sendToTeensy().
             uint8_t received_crc   = data[1 + payload_size];
             uint8_t calculated_crc = calculate_crc8(data, 1 + payload_size);
             if (received_crc != calculated_crc) {
@@ -388,12 +396,11 @@ void parseAndProcessUDPPacket()
                 break;
             }
 
-            memcpy(payload_buf, data + 1, payload_size); // A7: static buffer
+            memcpy(payload_buf, data + 1, payload_size);
             PositionCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
 
-            // A5: loop instead of 4 hardcoded calls
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setPosition(cmd.Input_Pos[i], cmd.Vel_FF[i], cmd.Torque_FF);
             break;
@@ -460,7 +467,7 @@ void parseAndProcessUDPPacket()
             Serial.println("Received IDLE command - putting all ODrives into IDLE state");
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
-            current_mode = 0; // reset so next mode always re-sends setControllerMode
+            current_mode = 0;
             Serial.println("All ODrives are now IDLE");
             break;
         }
@@ -478,7 +485,7 @@ void parseAndProcessUDPPacket()
         }
 
         default:
-            PRINTLN("Unknown MsgType!");
+            Serial.println("Unknown MsgType!");
             break;
         }
     }
@@ -487,15 +494,19 @@ void parseAndProcessUDPPacket()
 
 bool receivedFeedbackOnAllODrives()
 {
-    for (size_t i = 0; i < num_odrives; ++i)
+    bool any_active = false;
+    for (size_t i = 0; i < num_odrives; ++i) {
+        if (!odrives_data[i]->is_active) continue;
+        any_active = true;
         if (!odrives_data[i]->received_feedback) return false;
-    return true;
+    }
+    return any_active;  // false if no active ODrives (don't send empty packets)
 }
 
 void resetODriveData()
 {
     for (size_t i = 0; i < num_odrives; ++i)
-        odrives_data[i]->received_feedback = false;
+        if (odrives_data[i]->is_active) odrives_data[i]->received_feedback = false;
 }
 
 // ===== UDP feedback sender =====
@@ -517,14 +528,13 @@ void sendUDPPacket()
     if (!receivedFeedbackOnAllODrives()) return;
     resetODriveData();
 
-    // A4: use the learned PC IP, not a hardcoded address
     if (!pc_ip_known_) return;
 
     uint8_t buffer[sys_data_->dataSize()];
     sys_data_->serialize(buffer);
 
     if (!udp.send(pc_ip_, PC_udp_port_listening, buffer, sizeof(buffer))) {
-        printf("Error sending udp from Teensy\n");
+        printf("Error sending udp from Teensy2\n");
     } else {
         send_count++;
         if (send_count <= 5 || send_count % 100 == 0) {

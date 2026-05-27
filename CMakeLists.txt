@@ -16,7 +16,7 @@ if(${ENABLE_TIME_BENCHMARK})
 endif()
 
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # Find the Asio library
@@ -31,6 +31,8 @@ include_directories(${ASIO_INCLUDE_DIR})
 set(SRC_FILES
     src/MsgBase.cpp
     src/UPXtreme.cpp
+    src/Leg.cpp
+    src/HardwareBridge.cpp
 )
 
 # library
@@ -59,14 +61,19 @@ set(TEENSY_DIR
     ${CMAKE_SOURCE_DIR}/teensy
 )
 
+set(TEENSY2_DIR
+    ${CMAKE_SOURCE_DIR}/teensy2
+)
+
 set(TEENSY_DIR_PARAM_ONLY
     ${CMAKE_SOURCE_DIR}/test/CAN_cyclic_msg_benchmark
     ${CMAKE_SOURCE_DIR}/test/CAN_noncyclic_msg_benchmark
 )
-    
+
 add_custom_target(copy_to_teensy_dir ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY_DIR}
-    COMMENT "Copying selected files to teensy/ directory"
+    COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY2_DIR}
+    COMMENT "Copying selected files to teensy/ and teensy2/ directories"
 )
 
 add_custom_target(copy_teensy_CAN_dir ALL
