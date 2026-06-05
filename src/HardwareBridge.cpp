@@ -23,26 +23,11 @@ HardwareBridge::HardwareBridge()
 
     // ---- Left leg (Teensy 1) ----
     // Bus 0: l_hip_yaw (slot 0), l_hip_roll (slot 1)
-    // Bus 1: l_hip_pitch (slot 0), l_knee (slot 1)
     std::vector<MotorConfig> left_motors = {
         {"l_hip_yaw",   0, 0, TURNS_PER_RAD},
         {"l_hip_roll",  0, 1, TURNS_PER_RAD},
-        {"l_hip_pitch", 1, 0, TURNS_PER_RAD},
-        {"l_knee",      1, 1, TURNS_PER_RAD},
     };
     left_leg_ = std::make_unique<Leg>(*teensys_[0], std::move(left_motors), "left_leg");
-
-    // ---- Right leg (Teensy 2) ----
-    // Same bus/slot layout as Teensy 1 but different joint names.
-    // Bus 0: r_hip_yaw (slot 0), r_hip_roll (slot 1)
-    // Bus 1: r_hip_pitch (slot 0), r_knee (slot 1)
-    std::vector<MotorConfig> right_motors = {
-        {"r_hip_yaw",   0, 0, TURNS_PER_RAD},
-        {"r_hip_roll",  0, 1, TURNS_PER_RAD},
-        {"r_hip_pitch", 1, 0, TURNS_PER_RAD},
-        {"r_knee",      1, 1, TURNS_PER_RAD},
-    };
-    right_leg_ = std::make_unique<Leg>(*teensys_[1], std::move(right_motors), "right_leg");
 }
 
 void HardwareBridge::start()
