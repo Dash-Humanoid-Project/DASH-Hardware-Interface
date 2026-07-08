@@ -61,6 +61,13 @@ double sum_time_mcs_send_udp_msg = 0;
 double prev_time_mcs = 0;
 elapsedMillis print_timer;
 
+// Comms-loss watchdog: time since the last CRC-valid command. Reset on
+// every confirmed-valid PositionCommand/VelocityCommand/TorqueCommand/
+// IdleCommand/StartCommand, and once when first_packet_recv first becomes
+// true. See the watchdog_tripped check in loop().
+elapsedMillis last_valid_cmd_timer;
+static bool watchdog_tripped = false;
+
 // Static payload buffer — avoids heap allocation at 500 Hz.
 static uint8_t payload_buf[MAX_CMD_PAYLOAD_SIZE];
 
@@ -73,6 +80,15 @@ ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
 ODriveCAN* odrives[]      = {&odrv5, &odrv6, &odrv7, &odrv8};
 ODriveCAN* odrives_can1[] = {&odrv5, &odrv6};
 ODriveCAN* odrives_can2[] = {&odrv7, &odrv8};
+
+// Per-joint safety limits, indexed to match odrives[] above. Firmware-level
+// backstop — enforced independently of the PC-side clamp in Leg.cpp, so a
+// bad/garbled command still can't drive the hardware out of range. See
+// Param.h for values and derivation.
+static constexpr float q_min_turns[]   = {ODRV5_Q_MIN_TURNS, ODRV6_Q_MIN_TURNS, ODRV7_Q_MIN_TURNS, ODRV8_Q_MIN_TURNS};
+static constexpr float q_max_turns[]   = {ODRV5_Q_MAX_TURNS, ODRV6_Q_MAX_TURNS, ODRV7_Q_MAX_TURNS, ODRV8_Q_MAX_TURNS};
+static constexpr float tau_max_nm[]    = {ODRV5_TAU_MAX_NM, ODRV6_TAU_MAX_NM, ODRV7_TAU_MAX_NM, ODRV8_TAU_MAX_NM};
+static constexpr float vel_max_turns_s[] = {ODRV5_VEL_MAX_TURNS_S, ODRV6_VEL_MAX_TURNS_S, ODRV7_VEL_MAX_TURNS_S, ODRV8_VEL_MAX_TURNS_S};
 
 std::unique_ptr<SystemDataContainer> sys_data_;
 size_t num_odrives = 0;
@@ -318,6 +334,16 @@ void loop()
     parseAndProcessUDPPacket();
     if (!first_packet_recv) return;
 
+    // Comms-loss watchdog: if no CRC-valid command has arrived in
+    // WATCHDOG_TIMEOUT_MS, stop trusting whatever the ODrives were last
+    // told and idle them. Requires an explicit StartCommand to resume —
+    // see the watchdog_tripped reset in the StartCommand handler.
+    if (!watchdog_tripped && last_valid_cmd_timer > WATCHDOG_TIMEOUT_MS) {
+        Serial.println("WATCHDOG: no valid command received in time - idling all ODrives");
+        idleAllODrives();
+        watchdog_tripped = true;
+    }
+
     unsigned long start_time_mcs = micros();
     sendUDPPacket();
     sum_time_mcs_send_udp_msg += micros() - start_time_mcs;
@@ -370,7 +396,10 @@ void parseAndProcessUDPPacket()
             Serial.println(pc_ip_);
         }
 
-        if (!first_packet_recv) first_packet_recv = true;
+        if (!first_packet_recv) {
+            first_packet_recv = true;
+            last_valid_cmd_timer = 0;  // baseline from first contact, not Teensy boot
+        }
 
         MsgType type = static_cast<MsgType>(*data);
 
@@ -395,11 +424,18 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: PositionCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size);
             PositionCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            // Safety clamp: bound each commanded position to this joint's
+            // limits before it ever reaches the ODrive, independent of
+            // whatever the PC sent.
+            for (size_t i = 0; i < num_odrives && i < 4; ++i)
+                cmd.Input_Pos[i] = clampf(cmd.Input_Pos[i], q_min_turns[i], q_max_turns[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setPosition(cmd.Input_Pos[i], cmd.Vel_FF[i], cmd.Torque_FF);
@@ -424,11 +460,15 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: VelocityCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size);
             VelocityCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            for (size_t i = 0; i < num_odrives && i < 4; ++i)
+                cmd.Input_Vel[i] = clampf(cmd.Input_Vel[i], -vel_max_turns_s[i], vel_max_turns_s[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setVelocity(cmd.Input_Vel[i], cmd.Input_Torque_FF);
@@ -452,11 +492,18 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: TorqueCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size);
             TorqueCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            // Torque is the most safety-critical of the three: nothing else
+            // protects against a bad value here, so this clamp is the last
+            // line of defense before current is commanded.
+            for (size_t i = 0; i < num_odrives && i < 4; ++i)
+                cmd.Input_Torque[i] = clampf(cmd.Input_Torque[i], -tau_max_nm[i], tau_max_nm[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setTorque(cmd.Input_Torque[i]);
@@ -464,10 +511,9 @@ void parseAndProcessUDPPacket()
         }
 
         case MsgType::IdleCommand: {
+            last_valid_cmd_timer = 0;
             Serial.println("Received IDLE command - putting all ODrives into IDLE state");
-            for (size_t i = 0; i < num_odrives; ++i)
-                odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
-            current_mode = 0;
+            idleAllODrives();
             Serial.println("All ODrives are now IDLE");
             break;
         }
@@ -481,6 +527,20 @@ void parseAndProcessUDPPacket()
                 delay(10);
             }
             Serial.println("All ODrives are now in CLOSED_LOOP_CONTROL");
+            // Reset here, not at the top of this case: the loop above blocks
+            // for tens of ms, and resetting before that work would risk the
+            // watchdog self-tripping right after every StartCommand.
+            last_valid_cmd_timer = 0;
+            watchdog_tripped = false;  // explicit re-arm, per design: no auto-resume
+            break;
+        }
+
+        case MsgType::Heartbeat: {
+            // Deliberately does nothing else: no setControllerMode(), no
+            // setState(), no ODrive call of any kind. Its only job is
+            // satisfying the comms-loss watchdog during a settling wait
+            // without implying or switching to any control mode.
+            last_valid_cmd_timer = 0;
             break;
         }
 
@@ -490,6 +550,14 @@ void parseAndProcessUDPPacket()
         }
     }
     sum_time_mcs_send_CAN_command += micros() - start_time_mcs;
+}
+
+// Shared by the IdleCommand handler and the comms-loss watchdog in loop().
+void idleAllODrives()
+{
+    for (size_t i = 0; i < num_odrives; ++i)
+        odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
+    current_mode = 0; // reset so next mode always re-sends setControllerMode
 }
 
 bool receivedFeedbackOnAllODrives()

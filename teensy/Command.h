@@ -249,3 +249,32 @@ struct StartCommand : public CommandBase {
         std::cout << "StartCommand" << std::endl;
     }
 };
+
+// No-op keep-alive: resets the Teensy's comms-loss watchdog timer only.
+// Unlike Position/Velocity/TorqueCommand, this must NOT trigger any
+// setControllerMode()/setState() call on the Teensy — its whole purpose is
+// to satisfy the watchdog during a settling wait without implying or
+// switching to any particular control mode.
+struct HeartbeatCommand : public CommandBase {
+    HeartbeatCommand() = default;
+
+    size_t dataSize() const override {
+        return 0;  // No payload
+    }
+
+    MsgType getType() const override {
+        return MsgType::Heartbeat;
+    }
+
+    void writeToBuffer(uint8_t* buffer) const override {
+        // No data to write
+    }
+
+    void readFromBuffer(const uint8_t* buffer) override {
+        // No data to read
+    }
+
+    void printValue() override {
+        std::cout << "HeartbeatCommand" << std::endl;
+    }
+};

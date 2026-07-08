@@ -52,48 +52,57 @@ public:
     UPXtreme(const std::string &ip, const std::string &interface, int port,
              int N_bus_line, int N_actuator, std::string board_name = "UPXtreme_default");
 
-    ~UPXtreme() { end(); }
+    virtual ~UPXtreme() { end(); }
 
     // ----- Command setters -----
 
-    void setPositionCommand(std::shared_ptr<PositionCommand> cmd) {
+    virtual void setPositionCommand(std::shared_ptr<PositionCommand> cmd) {
         std::lock_guard<std::mutex> lock(command_mutex);
         sys_command_ = cmd;
     }
 
-    void setVelocityCommand(std::shared_ptr<VelocityCommand> cmd) {
+    virtual void setVelocityCommand(std::shared_ptr<VelocityCommand> cmd) {
         std::lock_guard<std::mutex> lock(command_mutex);
         sys_command_ = cmd;
     }
 
-    void setTorqueCommand(std::shared_ptr<TorqueCommand> cmd) {
+    virtual void setTorqueCommand(std::shared_ptr<TorqueCommand> cmd) {
         std::lock_guard<std::mutex> lock(command_mutex);
         sys_command_ = cmd;
     }
 
-    void sendIdleCommand() {
+    virtual void sendIdleCommand() {
         auto idle_cmd = std::make_shared<IdleCommand>();
         std::vector<uint8_t> serialized_data = idle_cmd->serializeWithHeader();
         sendToTeensy(serialized_data, serialized_data.size());
         std::cout << "Sent IDLE command to Teensy" << std::endl;
     }
 
-    void sendStartCommand() {
+    virtual void sendStartCommand() {
         auto start_cmd = std::make_shared<StartCommand>();
         std::vector<uint8_t> serialized_data = start_cmd->serializeWithHeader();
         sendToTeensy(serialized_data, serialized_data.size());
         std::cout << "Sent START command to Teensy" << std::endl;
     }
 
+    // No-op keep-alive: resets the Teensy's watchdog without implying any
+    // control mode. Deliberately no console print — this is meant to be
+    // sent repeatedly during settling waits, unlike the one-shot commands above.
+    virtual void sendHeartbeat() {
+        auto hb_cmd = std::make_shared<HeartbeatCommand>();
+        std::vector<uint8_t> serialized_data = hb_cmd->serializeWithHeader();
+        sendToTeensy(serialized_data, serialized_data.size());
+    }
+
     // ----- A3: thread-safe feedback accessors -----
     // Callers use these instead of accessing sys_data_ directly.
 
-    float getPosEstimate(int bus, int node) const {
+    virtual float getPosEstimate(int bus, int node) const {
         std::lock_guard<std::mutex> lock(data_mutex_);
         return sys_data_->getPosEstimateAtBusAndNode(bus, node);
     }
 
-    float getVelEstimate(int bus, int node) const {
+    virtual float getVelEstimate(int bus, int node) const {
         std::lock_guard<std::mutex> lock(data_mutex_);
         return sys_data_->getVelEstimateAtBusAndNode(bus, node);
     }
@@ -108,7 +117,7 @@ public:
 
     // A6: end() joins the receive thread cleanly by setting stop_threads first,
     // then closing the socket to unblock the blocking receive_from() call.
-    void end()
+    virtual void end()
     {
         stop_threads = true;
         // Close socket to unblock receive_from(). The catch block in the receive
@@ -130,5 +139,17 @@ public:
         catch (const std::exception &e) {
             std::cerr << "Error closing receive_socket: " << e.what() << std::endl;
         }
+    }
+
+protected:
+    // Sim-only constructor: initialises sys_data_ but skips all networking.
+    UPXtreme(int n_bus_line, int n_actuator, std::string board_name)
+        : n_bus_line_(n_bus_line), n_actuator_(n_actuator),
+          board_name_(std::move(board_name)), udp_port_(0),
+          send_socket(io_context), receive_socket(io_context)
+    {
+        sys_data_ = std::make_shared<SystemDataContainer>();
+        for (int i = 0; i < n_bus_line_; ++i)
+            sys_data_->add(SystemData<2>());
     }
 };

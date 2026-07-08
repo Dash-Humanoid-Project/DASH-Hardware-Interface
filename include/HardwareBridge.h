@@ -10,7 +10,7 @@
 // then interacts exclusively through leftLeg() and rightLeg().
 class HardwareBridge {
 public:
-    HardwareBridge();
+    explicit HardwareBridge(bool sim_mode = false);
     ~HardwareBridge() { stop(); }
 
     void start();           // Start all UPXtreme receive/send threads
@@ -18,6 +18,7 @@ public:
 
     void startClosedLoop(); // Send StartCommand to every Teensy
     void idle();            // Send IdleCommand to every Teensy
+    void sendHeartbeat();   // Send no-op watchdog keep-alive to every Teensy
 
     Leg& leftLeg()  { return *left_leg_; }
     Leg& rightLeg() { return *right_leg_; }
@@ -30,6 +31,7 @@ private:
     std::vector<std::unique_ptr<UPXtreme>> teensys_;
     std::unique_ptr<Leg> left_leg_;
     std::unique_ptr<Leg> right_leg_;
-    bool started_ = false;  // true only after start() is called
-    bool stopped_ = false;  // guard against double-stop (explicit call + destructor)
+    bool sim_mode_ = false;
+    bool started_  = false;
+    bool stopped_  = false;
 };

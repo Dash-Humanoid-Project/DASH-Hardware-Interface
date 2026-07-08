@@ -9,23 +9,12 @@
 #include "DataContainer.h"
 #include "Param.h"
 #include "Utils.h"
-#include <ST7789_t3.h>
 
 #define CAN_BAUDRATE 250000
 #define HEARTBEAT_MSG_RATE_MS 100 // 10 Hz
 #define ENCODER_MSG_RATE_MS 2     // 500 Hz
 #define NUM_TX_MAILBOXES 32
 #define NUM_RX_MAILBOXES 32
-
-// ----- LCD (ST7789, 240x240) -----
-#define TFT_CS   10
-#define TFT_DC    9
-#define TFT_MOSI 11
-#define TFT_SCLK 13
-#define TFT_RST  32
-#define TFT_BL   33
-ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
-elapsedMillis lcd_timer;
 
 using namespace qindesign::network;
 
@@ -50,6 +39,11 @@ bool pc_ip_known_ = false;
 EthernetUDP udp;
 bool first_packet_recv = false;
 
+// Deferred link-state info: set in the onLinkState callback (unsafe to call
+// Ethernet.linkSpeed() / linkIsFullDuplex() there), printed from setup().
+static volatile bool link_state_changed = false;
+static volatile bool link_is_up = false;
+
 // A2: Single shared mode variable across all command cases.
 // Prevents stale per-case statics from skipping setControllerMode()
 // calls when the user switches modes and switches back.
@@ -64,21 +58,40 @@ double sum_time_mcs_send_udp_msg = 0;
 double prev_time_mcs = 0;
 elapsedMillis print_timer;
 
+// Comms-loss watchdog: time since the last CRC-valid command. Reset on
+// every confirmed-valid PositionCommand/VelocityCommand/TorqueCommand/
+// IdleCommand/StartCommand, and once when first_packet_recv first becomes
+// true. See the watchdog_tripped check in loop().
+elapsedMillis last_valid_cmd_timer;
+static bool watchdog_tripped = false;
+
 // A7: Static payload buffer — avoids heap allocation at 500 Hz.
 static uint8_t payload_buf[MAX_CMD_PAYLOAD_SIZE];
 
 // ----- ODrive objects -----
 ODriveCAN odrv0(wrap_can_intf(ODRV0_CAN), ODRV0_CAN_NODE_ID);
 ODriveCAN odrv1(wrap_can_intf(ODRV1_CAN), ODRV1_CAN_NODE_ID);
-//ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
-//ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
-//ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
+ODriveCAN odrv2(wrap_can_intf(ODRV2_CAN), ODRV2_CAN_NODE_ID);
+ODriveCAN odrv3(wrap_can_intf(ODRV3_CAN), ODRV3_CAN_NODE_ID);
+ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
 //ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
 //ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
 //ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
 
-ODriveCAN* odrives[]      = {&odrv0, &odrv1};
+ODriveCAN* odrives[]      = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4};
 ODriveCAN* odrives_can1[] = {&odrv0, &odrv1};
+// odrv4 (l_ankle) now shares the physical CAN2 wire with odrv2/odrv3 — see
+// ODRV4_CAN in Param.h. CAN3 is currently unused on this Teensy.
+ODriveCAN* odrives_can2[] = {&odrv2, &odrv3, &odrv4};
+
+// Per-joint safety limits, indexed to match odrives[] above. Firmware-level
+// backstop — enforced independently of the PC-side clamp in Leg.cpp, so a
+// bad/garbled command still can't drive the hardware out of range. See
+// Param.h for values and derivation.
+static constexpr float q_min_turns[]   = {ODRV0_Q_MIN_TURNS, ODRV1_Q_MIN_TURNS, ODRV2_Q_MIN_TURNS, ODRV3_Q_MIN_TURNS, ODRV4_Q_MIN_TURNS};
+static constexpr float q_max_turns[]   = {ODRV0_Q_MAX_TURNS, ODRV1_Q_MAX_TURNS, ODRV2_Q_MAX_TURNS, ODRV3_Q_MAX_TURNS, ODRV4_Q_MAX_TURNS};
+static constexpr float tau_max_nm[]    = {ODRV0_TAU_MAX_NM, ODRV1_TAU_MAX_NM, ODRV2_TAU_MAX_NM, ODRV3_TAU_MAX_NM, ODRV4_TAU_MAX_NM};
+static constexpr float vel_max_turns_s[] = {ODRV0_VEL_MAX_TURNS_S, ODRV1_VEL_MAX_TURNS_S, ODRV2_VEL_MAX_TURNS_S, ODRV3_VEL_MAX_TURNS_S, ODRV4_VEL_MAX_TURNS_S};
 
 std::unique_ptr<SystemDataContainer> sys_data_;
 size_t num_odrives = 0;
@@ -99,15 +112,15 @@ struct ODriveUserData {
 
 ODriveUserData odrv0_user_data(ODRV0_CAN_BUS_ID, ODRV0_CAN_ORDER_ID, &ODRV0_CAN);
 ODriveUserData odrv1_user_data(ODRV1_CAN_BUS_ID, ODRV1_CAN_ORDER_ID, &ODRV1_CAN);
-//ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
-//ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
-//ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
+ODriveUserData odrv2_user_data(ODRV2_CAN_BUS_ID, ODRV2_CAN_ORDER_ID, &ODRV2_CAN);
+ODriveUserData odrv3_user_data(ODRV3_CAN_BUS_ID, ODRV3_CAN_ORDER_ID, &ODRV3_CAN);
+ODriveUserData odrv4_user_data(ODRV4_CAN_BUS_ID, ODRV4_CAN_ORDER_ID, &ODRV4_CAN);
 //ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN);
 //ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
 //ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
 
 ODriveUserData* odrives_data[] = {
-    &odrv0_user_data, &odrv1_user_data
+    &odrv0_user_data, &odrv1_user_data, &odrv2_user_data, &odrv3_user_data, &odrv4_user_data
 };
 
 // Called every time a Heartbeat message arrives from the ODrive
@@ -163,13 +176,14 @@ void onCanMessage1(const CanMsg& msg) {
 }
 
 void onCanMessage2(const CanMsg& msg) {
-    // No ODrives on CAN2 in current config
-    (void)msg;
+    for (auto odrive: odrives_can2) { onReceive(msg, *odrive); }
 }
 
-//void onCanMessage3(const CanMsg& msg) {
-//    for (auto odrive: odrives_can3) { onReceive(msg, *odrive); }
-//}
+// CAN3 currently has no ODrives wired to it (l_ankle moved to CAN2) — no-op,
+// kept so pumpEvents(can3) in loop() still has a registered handler.
+void onCanMessage3(const CanMsg& msg) {
+    (void)msg;
+}
 
 // ===== Setup =====
 
@@ -179,31 +193,42 @@ void setup()
     for (int i = 0; i < 30 && !Serial; ++i) { delay(100); }
     delay(200);
 
-    pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, HIGH);
-    tft.init(240, 240);
-    tft.setRotation(2);
-    tft.fillScreen(ST7735_BLACK);
-    tft.setTextWrap(false);
-    lcdRow(0, 0, 2, ST7735_CYAN,   ST7735_BLACK, "DASH Teensy 1");
-    lcdRow(0, 20, 1, ST7735_YELLOW, ST7735_BLACK, "Initializing...");
-
-    lcdRow(0, 20, 1, ST7735_YELLOW, ST7735_BLACK, "Ethernet...");
     if (!setupEthernetWithStaticIP()) {
         Serial.println("Ethernet failed to initialize");
-        lcdRow(0, 20, 1, ST7735_RED, ST7735_BLACK, "Ethernet FAILED");
         while (true);
     }
     delay(2000);
 
+    // Print link speed/duplex here — safe to call Ethernet.linkSpeed() /
+    // linkIsFullDuplex() outside the onLinkState callback.
+    if (link_state_changed) {
+        Serial.print("[");
+        Serial.print(millis());
+        Serial.print("ms] Link state: ");
+        Serial.print(link_is_up ? "UP" : "DOWN");
+        if (link_is_up) {
+            Serial.print(" (");
+            Serial.print(Ethernet.linkSpeed());
+            Serial.print("Mbps ");
+            Serial.print(Ethernet.linkIsFullDuplex() ? "Full" : "Half");
+            Serial.print(" Duplex)");
+        }
+        Serial.println();
+        link_state_changed = false;
+    }
+
     sys_data_ = std::make_unique<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN1>());
+    sys_data_->add(SystemData<N_ODRIVE_CAN2>());
+    // CAN3 carries only l_ankle (1 real motor), but UPXtreme.cpp on the PC
+    // side hardcodes SystemData<2> for every bus, so this bus is padded to
+    // 2 slots to keep packet sizes in sync; node 1 is unused/always zero.
+    sys_data_->add(SystemData<2>());
 
     num_odrives      = sizeof(odrives)      / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
     if (num_odrives != num_odrives_data) {
         Serial.println("Error: num_odrives != num_odrives_data");
-        lcdRow(0, 20, 1, ST7735_RED, ST7735_BLACK, "Config ERROR");
         while (true);
     }
 
@@ -212,15 +237,12 @@ void setup()
         odrives[i]->onStatus(onHeartbeat, odrives_data[i]);
     }
 
-    lcdRow(0, 20, 1, ST7735_YELLOW, ST7735_BLACK, "CAN init...");
     if (!setupCAN()) {
         Serial.println("CAN failed to initialize: reset required");
-        lcdRow(0, 20, 1, ST7735_RED, ST7735_BLACK, "CAN FAILED");
         while (true);
     }
 
     // Configure ODrive message rates — skip silently if ODrive doesn't respond
-    lcdRow(0, 20, 1, ST7735_YELLOW, ST7735_BLACK, "Finding ODrives...");
     for (auto odrive: odrives) {
         uint32_t t;
         t = millis(); while (!odrive->setEndpoint(274, HEARTBEAT_MSG_RATE_MS) && millis()-t < 500) { delay(10); }
@@ -232,29 +254,38 @@ void setup()
         t = millis(); while (!odrive->setEndpoint(280, 0) && millis()-t < 200) { delay(10); }
     }
 
+    Serial.print("Found ODrives: ");
     for (size_t i = 0; i < num_odrives; ++i) {
-        for (int j = 0; j < 5; ++j) {
-            delay(10);
+        // Wait with a 5s timeout rather than spinning forever on a missing ODrive
+        uint32_t deadline = millis() + 5000;
+        while (!odrives_data[i]->received_heartbeat && millis() < deadline) {
             pumpEvents(*odrives_data[i]->can_ptr_);
+            delay(1);
+        }
+        if (!odrives_data[i]->received_heartbeat) {
+            Serial.print(" [odrv"); Serial.print(i); Serial.print(" TIMEOUT!]");
+        } else {
+            Serial.print(" [odrv"); Serial.print(i); Serial.print("]");
         }
     }
-
-    Serial.println("ODrive discovery skipped — callbacks will fire when drives come online.");
+    Serial.println("");
 
     Serial.println("ODrives found. Ready for commands.");
     Serial.println("Run './closed_loop_test --start' on PC to enable closed-loop control.");
 
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
-
-    lcdRow(0, 20, 1, ST7735_GREEN, ST7735_BLACK, "Ready. Waiting for PC...");
-    lcd_timer = 0;
 }
 
 bool setupEthernetWithStaticIP()
 {
+    // Only do GPIO in the callback — calling Ethernet.linkSpeed() /
+    // linkIsFullDuplex() here reads PHY registers over MDIO while the
+    // ENET peripheral may not be fully initialised, which hangs the MAC.
     Ethernet.onLinkState([](bool state) {
         digitalWrite(LED_BUILTIN, state ? HIGH : LOW);
+        link_is_up = state;
+        link_state_changed = true;
     });
 
     if (!Ethernet.begin(staticIP, subnetMask, gateway)) { return false; }
@@ -300,7 +331,8 @@ bool setupCAN()
     can1.onReceive(onCanMessage1);
     can1.setClock(CLK_60MHz);
 
-    // CAN2: auto-distribute for left-leg node IDs 2–3
+    // CAN2: auto-distribute for left-leg node IDs 2–4 (l_hip_pitch, l_knee,
+    // l_ankle — l_ankle moved here from CAN3, see ODRV4_CAN in Param.h)
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
     can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
@@ -309,86 +341,61 @@ bool setupCAN()
     can2.distribute();
     can2.setClock(CLK_60MHz);
 
+    // CAN3: currently unused (no ODrives wired to it) — initialized for
+    // completeness/future use only.
+    can3.begin();
+    can3.setBaudRate(CAN_BAUDRATE);
+    can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    can3.enableMBInterrupts();
+    can3.onReceive(onCanMessage3);
+    can3.distribute();
+    can3.setClock(CLK_60MHz);
+
     return true;
-}
-
-// ===== LCD display =====
-
-// Overwrites a single text row in-place to avoid full-screen flicker.
-// y: top pixel of the row. bg: background colour used to erase the old value.
-void lcdRow(int16_t x, int16_t y, uint8_t size,
-                   uint16_t colour, uint16_t bg, const char* text)
-{
-    int16_t ch = 8 * size;
-    tft.fillRect(x, y, 240 - x, ch, bg);
-    tft.setTextColor(colour, bg);
-    tft.setTextSize(size);
-    tft.setCursor(x, y);
-    tft.print(text);
-}
-
-void lcdUpdate(double avg_loop_us, double avg_udp_us, double avg_can_us)
-{
-    static const char* mode_names[] = {"IDLE", "TORQUE", "VELOCITY", "POSITION"};
-    const char* mode_str = (current_mode <= 3) ? mode_names[current_mode] : "?";
-
-    char buf[32];
-
-    // --- Header ---
-    lcdRow(0, 0, 2, ST7735_CYAN, ST7735_BLACK, "DASH Teensy 1");
-
-    // --- PC connection ---
-    if (pc_ip_known_) {
-        snprintf(buf, sizeof(buf), "PC: %d.%d.%d.%d",
-                 pc_ip_[0], pc_ip_[1], pc_ip_[2], pc_ip_[3]);
-        lcdRow(0, 20, 1, ST7735_GREEN, ST7735_BLACK, buf);
-    } else {
-        lcdRow(0, 20, 1, ST7735_RED, ST7735_BLACK, "PC: waiting...");
-    }
-
-    // --- Mode ---
-    snprintf(buf, sizeof(buf), "Mode: %s", mode_str);
-    lcdRow(0, 30, 1, ST7735_YELLOW, ST7735_BLACK, buf);
-
-    // --- ODrive rows ---
-    const int16_t odrv_y[] = {50, 130};
-    for (size_t i = 0; i < num_odrives; ++i) {
-        bool alive = odrives_data[i]->received_heartbeat;
-        float pos = sys_data_->getPosEstimateAtBusAndNode(
-            odrives_data[i]->bus_idx_, odrives_data[i]->node_idx_);
-        float vel = sys_data_->getVelEstimateAtBusAndNode(
-            odrives_data[i]->bus_idx_, odrives_data[i]->node_idx_);
-
-        snprintf(buf, sizeof(buf), "odrv%d  %s", (int)i, alive ? "[OK] " : "[---]");
-        lcdRow(0, odrv_y[i],      2, alive ? ST7735_GREEN : ST7735_RED, ST7735_BLACK, buf);
-        snprintf(buf, sizeof(buf), " pos: %+.4f t", pos);
-        lcdRow(0, odrv_y[i] + 20, 1, ST7735_WHITE, ST7735_BLACK, buf);
-        snprintf(buf, sizeof(buf), " vel: %+.4f t/s", vel);
-        lcdRow(0, odrv_y[i] + 30, 1, ST7735_WHITE, ST7735_BLACK, buf);
-        snprintf(buf, sizeof(buf), " state: %d  err: 0x%lX",
-                 (int)odrives_data[i]->last_heartbeat.Axis_State,
-                 (unsigned long)odrives_data[i]->last_heartbeat.Axis_Error);
-        uint16_t err_col = (odrives_data[i]->last_heartbeat.Axis_Error != 0)
-                           ? ST7735_RED : ST7735_WHITE;
-        lcdRow(0, odrv_y[i] + 40, 1, err_col, ST7735_BLACK, buf);
-    }
-
-    // --- Timing ---
-    snprintf(buf, sizeof(buf), "loop: %.1f us", avg_loop_us);
-    lcdRow(0, 215, 1, ST7735_WHITE, ST7735_BLACK, buf);
-    snprintf(buf, sizeof(buf), "udp:  %.1f  can: %.1f us", avg_udp_us, avg_can_us);
-    lcdRow(0, 225, 1, ST7735_WHITE, ST7735_BLACK, buf);
 }
 
 // ===== Main loop =====
 
 void loop()
 {
+    // Continuous link-state + alive heartbeat — independent of UDP traffic,
+    // so we have visibility even if the PC never gets a packet through.
+    if (link_state_changed) {
+        Serial.print("[");
+        Serial.print(millis());
+        Serial.print("ms] Link state changed: ");
+        Serial.println(link_is_up ? "UP" : "DOWN");
+        link_state_changed = false;
+    }
+    static elapsedMillis alive_timer;
+    if (alive_timer >= 2000) {
+        Serial.print("[");
+        Serial.print(millis());
+        Serial.print("ms] alive | link=");
+        Serial.print(Ethernet.linkState() ? "UP" : "DOWN");
+        Serial.print(" | pc_ip_known=");
+        Serial.print(pc_ip_known_ ? "yes" : "no");
+        Serial.print(" | first_packet_recv=");
+        Serial.println(first_packet_recv ? "yes" : "no");
+        alive_timer = 0;
+    }
+
     pumpEvents(can1);
     pumpEvents(can2);
+    pumpEvents(can3);
 
     parseAndProcessUDPPacket();
     if (!first_packet_recv) return;
+
+    // Comms-loss watchdog: if no CRC-valid command has arrived in
+    // WATCHDOG_TIMEOUT_MS, stop trusting whatever the ODrives were last
+    // told and idle them. Requires an explicit StartCommand to resume —
+    // see the watchdog_tripped reset in the StartCommand handler.
+    if (!watchdog_tripped && last_valid_cmd_timer > WATCHDOG_TIMEOUT_MS) {
+        Serial.println("WATCHDOG: no valid command received in time - idling all ODrives");
+        idleAllODrives();
+        watchdog_tripped = true;
+    }
 
     unsigned long start_time_mcs = micros();
     sendUDPPacket();
@@ -424,15 +431,6 @@ void loop()
         sum_time_mcs_send_udp_msg = 0;
         print_timer = 0;
     }
-
-    // LCD: refresh live data at 500 ms
-    if (lcd_timer >= 500) {
-        double avg_loop = (loop_count > 0) ? sum_loop_duration_mcs / loop_count : 0;
-        double avg_udp  = (loop_count > 0) ? sum_time_mcs_send_udp_msg / loop_count : 0;
-        double avg_can  = (loop_count > 0) ? sum_time_mcs_send_CAN_command / loop_count : 0;
-        lcdUpdate(avg_loop, avg_udp, avg_can);
-        lcd_timer = 0;
-    }
 }
 
 // ===== UDP command parsing =====
@@ -455,7 +453,10 @@ void parseAndProcessUDPPacket()
             Serial.println(pc_ip_);
         }
 
-        if (!first_packet_recv) first_packet_recv = true;
+        if (!first_packet_recv) {
+            first_packet_recv = true;
+            last_valid_cmd_timer = 0;  // baseline from first contact, not Teensy boot
+        }
 
         MsgType type = static_cast<MsgType>(*data);
 
@@ -483,11 +484,18 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: PositionCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size); // A7: static buffer
             PositionCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            // Safety clamp: bound each commanded position to this joint's
+            // limits before it ever reaches the ODrive, independent of
+            // whatever the PC sent.
+            for (size_t i = 0; i < num_odrives && i < 5; ++i)
+                cmd.Input_Pos[i] = clampf(cmd.Input_Pos[i], q_min_turns[i], q_max_turns[i]);
 
             // A5: loop instead of 4 hardcoded calls
             for (size_t i = 0; i < num_odrives; ++i)
@@ -513,11 +521,15 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: VelocityCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size);
             VelocityCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            for (size_t i = 0; i < num_odrives && i < 5; ++i)
+                cmd.Input_Vel[i] = clampf(cmd.Input_Vel[i], -vel_max_turns_s[i], vel_max_turns_s[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setVelocity(cmd.Input_Vel[i], cmd.Input_Torque_FF);
@@ -541,11 +553,18 @@ void parseAndProcessUDPPacket()
                 Serial.println("CRC MISMATCH: TorqueCommand dropped");
                 break;
             }
+            last_valid_cmd_timer = 0;
 
             memcpy(payload_buf, data + 1, payload_size);
             TorqueCommand cmd;
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
+
+            // Torque is the most safety-critical of the three: nothing else
+            // protects against a bad value here, so this clamp is the last
+            // line of defense before current is commanded.
+            for (size_t i = 0; i < num_odrives && i < 5; ++i)
+                cmd.Input_Torque[i] = clampf(cmd.Input_Torque[i], -tau_max_nm[i], tau_max_nm[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
                 odrives[i]->setTorque(cmd.Input_Torque[i]);
@@ -553,10 +572,9 @@ void parseAndProcessUDPPacket()
         }
 
         case MsgType::IdleCommand: {
+            last_valid_cmd_timer = 0;
             Serial.println("Received IDLE command - putting all ODrives into IDLE state");
-            for (size_t i = 0; i < num_odrives; ++i)
-                odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
-            current_mode = 0; // reset so next mode always re-sends setControllerMode
+            idleAllODrives();
             Serial.println("All ODrives are now IDLE");
             break;
         }
@@ -569,7 +587,37 @@ void parseAndProcessUDPPacket()
                 odrives[i]->setState(ODriveAxisState::AXIS_STATE_CLOSED_LOOP_CONTROL);
                 delay(10);
             }
+
+            // Pump CAN events so fresh heartbeats (reflecting the requested
+            // state change) arrive before we report back what happened.
+            for (int j = 0; j < 30; ++j) {
+                delay(10);
+                pumpEvents(can1);
+                pumpEvents(can2);
+                pumpEvents(can3);
+            }
+
+            for (size_t i = 0; i < num_odrives; ++i) {
+                Serial.print("  odrv"); Serial.print(i);
+                Serial.print(": state="); Serial.print(odrives_data[i]->last_heartbeat.Axis_State);
+                Serial.print(" err=0x"); Serial.println(odrives_data[i]->last_heartbeat.Axis_Error, HEX);
+            }
             Serial.println("All ODrives are now in CLOSED_LOOP_CONTROL");
+            // Reset here, not at the top of this case: the pump loop above
+            // blocks for ~300ms, which alone exceeds WATCHDOG_TIMEOUT_MS —
+            // resetting before that work would let the watchdog self-trip
+            // immediately after every StartCommand, regardless of the PC.
+            last_valid_cmd_timer = 0;
+            watchdog_tripped = false;  // explicit re-arm, per design: no auto-resume
+            break;
+        }
+
+        case MsgType::Heartbeat: {
+            // Deliberately does nothing else: no setControllerMode(), no
+            // setState(), no ODrive call of any kind. Its only job is
+            // satisfying the comms-loss watchdog during a settling wait
+            // without implying or switching to any control mode.
+            last_valid_cmd_timer = 0;
             break;
         }
 
@@ -579,6 +627,14 @@ void parseAndProcessUDPPacket()
         }
     }
     sum_time_mcs_send_CAN_command += micros() - start_time_mcs;
+}
+
+// Shared by the IdleCommand handler and the comms-loss watchdog in loop().
+void idleAllODrives()
+{
+    for (size_t i = 0; i < num_odrives; ++i)
+        odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
+    current_mode = 0; // reset so next mode always re-sends setControllerMode
 }
 
 bool receivedFeedbackOnAllODrives()

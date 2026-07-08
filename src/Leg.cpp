@@ -1,6 +1,13 @@
 #include "Leg.h"
+#include "Utils.h"
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
+#include <cmath>
+
+namespace {
+constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+}
 
 Leg::Leg(UPXtreme& teensy, std::vector<MotorConfig> motors, std::string name)
     : teensy_(teensy), motors_(std::move(motors)), name_(std::move(name))
@@ -55,12 +62,26 @@ void Leg::setPositions(const std::map<std::string, float>& positions_rad,
     for (int i = 0; i < n; ++i) {
         const auto& m = motors_[i];
         auto pit = positions_rad.find(m.joint_name);
-        if (pit != positions_rad.end())
-            pos[i] = static_cast<Input_Pos_TYPE>(pit->second * m.turns_per_rad);
+        if (pit != positions_rad.end()) {
+            float q = pit->second;
+            float q_clamped = clampf(q, m.q_min_rad, m.q_max_rad);
+            if (q_clamped != q)
+                std::cerr << "[Leg] CLAMPED position: " << m.joint_name
+                          << " requested=" << q << " rad, applied=" << q_clamped
+                          << " rad (limits [" << m.q_min_rad << ", " << m.q_max_rad << "])\n";
+            pos[i] = static_cast<Input_Pos_TYPE>(q_clamped * m.turns_per_rad);
+        }
 
         auto vit = vel_ff_rad_s.find(m.joint_name);
-        if (vit != vel_ff_rad_s.end())
-            vel[i] = static_cast<Vel_FF_TYPE>(vit->second * m.turns_per_rad);
+        if (vit != vel_ff_rad_s.end()) {
+            float qd = vit->second;
+            float qd_clamped = clampf(qd, -m.vel_max_rad_s, m.vel_max_rad_s);
+            if (qd_clamped != qd)
+                std::cerr << "[Leg] CLAMPED vel_ff: " << m.joint_name
+                          << " requested=" << qd << " rad/s, applied=" << qd_clamped
+                          << " rad/s (limit +/-" << m.vel_max_rad_s << ")\n";
+            vel[i] = static_cast<Vel_FF_TYPE>(qd_clamped * m.turns_per_rad);
+        }
     }
 
     teensy_.setPositionCommand(std::make_shared<PositionCommand>(pos, vel));
@@ -74,8 +95,15 @@ void Leg::setVelocities(const std::map<std::string, float>& velocities_rad_s)
     for (int i = 0; i < n; ++i) {
         const auto& m = motors_[i];
         auto it = velocities_rad_s.find(m.joint_name);
-        if (it != velocities_rad_s.end())
-            vel[i] = static_cast<Input_Vel_TYPE>(it->second * m.turns_per_rad);
+        if (it != velocities_rad_s.end()) {
+            float qd = it->second;
+            float qd_clamped = clampf(qd, -m.vel_max_rad_s, m.vel_max_rad_s);
+            if (qd_clamped != qd)
+                std::cerr << "[Leg] CLAMPED velocity: " << m.joint_name
+                          << " requested=" << qd << " rad/s, applied=" << qd_clamped
+                          << " rad/s (limit +/-" << m.vel_max_rad_s << ")\n";
+            vel[i] = static_cast<Input_Vel_TYPE>(qd_clamped * m.turns_per_rad);
+        }
     }
 
     teensy_.setVelocityCommand(std::make_shared<VelocityCommand>(vel));
@@ -89,8 +117,21 @@ void Leg::setTorques(const std::map<std::string, float>& torques_nm)
     for (int i = 0; i < n; ++i) {
         const auto& m = motors_[i];
         auto it = torques_nm.find(m.joint_name);
-        if (it != torques_nm.end())
-            tau[i] = static_cast<Input_Torque_TYPE>(it->second);
+        if (it != torques_nm.end()) {
+            float t = it->second;
+            float t_clamped = clampf(t, -m.tau_max_nm, m.tau_max_nm);
+            if (t_clamped != t)
+                std::cerr << "[Leg] CLAMPED torque: " << m.joint_name
+                          << " requested=" << t << " Nm, applied=" << t_clamped
+                          << " Nm (limit +/-" << m.tau_max_nm << ")\n";
+
+            // A gearbox multiplies torque by the reduction ratio, so the
+            // motor-shaft command (what the ODrive's Input_Torque expects,
+            // assuming true motor Kt is configured) must be the joint-space
+            // torque divided by that ratio, not sent through directly.
+            float gear_ratio = m.turns_per_rad * kTwoPi;
+            tau[i] = static_cast<Input_Torque_TYPE>(t_clamped / gear_ratio);
+        }
     }
 
     teensy_.setTorqueCommand(std::make_shared<TorqueCommand>(tau));

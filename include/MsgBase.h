@@ -11,6 +11,7 @@ enum class MsgType : uint8_t {
     SystemData      = 0x04,
     IdleCommand     = 0x05,
     StartCommand    = 0x06,
+    Heartbeat       = 0x07,
 };
 
 struct MsgBase {
