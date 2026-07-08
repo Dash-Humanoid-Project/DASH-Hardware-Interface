@@ -8,6 +8,7 @@
 #include <thread>
 #include "HardwareBridge.h"
 #include "LeftLegKinematics.h"
+#include "PeriodicTimer.h"
 
 #define UPXTREME_i14
 
@@ -109,6 +110,11 @@ public:
 
         auto start = std::chrono::steady_clock::now();
 
+        // Anchored-schedule rate limiter (~500 Hz) — see PeriodicTimer.h.
+        // Shared across all modes below since only one of them runs per
+        // invocation.
+        PeriodicTimer loop_timer(0.002);
+
         // ---------- position command ----------
         if (cmd_flag_ == 0)
         {
@@ -120,6 +126,8 @@ public:
             std::vector<double> pos_log[5], vel_log[5];
             for (auto& v : pos_log) v.reserve(100000);
             for (auto& v : vel_log) v.reserve(100000);
+            std::vector<uint64_t> missed_log{};
+            missed_log.reserve(100000);
 
             double prev_pos[5] = {-999, -999, -999, -999, -999};
             double prev_vel[5] = {-999, -999, -999, -999, -999};
@@ -254,6 +262,7 @@ public:
                         prev_pos[j] = cp[j];
                         prev_vel[j] = cv[j];
                     }
+                    missed_log.push_back(loop_timer.lastMissedTicks());
                     i++;
                 }
 
@@ -261,12 +270,13 @@ public:
                 auto now = std::chrono::steady_clock::now();
                 if (now >= next_print) {
                     std::cout << "t=" << t << "s"
-                              << " | pos: [" << cp[0] << ", " << cp[1] << ", " << cp[2] << ", " << cp[3] << ", " << cp[4] << "]" << std::endl;
+                              << " | pos: [" << cp[0] << ", " << cp[1] << ", " << cp[2] << ", " << cp[3] << ", " << cp[4] << "]"
+                              << " | missed=" << loop_timer.lastMissedTicks() << std::endl;
                     next_print = now + std::chrono::seconds(1);
                 }
 #endif
-                // Rate-limit to ~500 Hz
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                // Rate-limit to ~500 Hz on a fixed schedule (see PeriodicTimer.h)
+                loop_timer.wait();
             }
 
             // Safe shutdown: smoothly return to zero over 2 seconds
@@ -313,14 +323,16 @@ public:
                          << "l_hip_roll_pos_rad,l_hip_roll_vel_rad_s,"
                          << "l_hip_pitch_pos_rad,l_hip_pitch_vel_rad_s,"
                          << "l_knee_pos_rad,l_knee_vel_rad_s,"
-                         << "l_ankle_pos_rad,l_ankle_vel_rad_s\n";
+                         << "l_ankle_pos_rad,l_ankle_vel_rad_s,"
+                         << "missed_ticks\n";
                 for (int j = 0; j < i; ++j) {
                     log_file << time_log[j].count() << ","
                              << pos_log[0][j] << "," << vel_log[0][j] << ","
                              << pos_log[1][j] << "," << vel_log[1][j] << ","
                              << pos_log[2][j] << "," << vel_log[2][j] << ","
                              << pos_log[3][j] << "," << vel_log[3][j] << ","
-                             << pos_log[4][j] << "," << vel_log[4][j] << "\n";
+                             << pos_log[4][j] << "," << vel_log[4][j] << ","
+                             << missed_log[j] << "\n";
                 }
                 log_file.close();
             } else {
@@ -338,7 +350,7 @@ public:
                     {"l_hip_yaw", 0}, {"l_hip_roll", 0},
                     {"l_hip_pitch", 0}, {"l_knee", 0}, {"l_ankle", 0},
                 });
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                loop_timer.wait();
             }
 
             if (shutdown_requested) {
@@ -356,7 +368,7 @@ public:
                     {"l_hip_yaw", 0}, {"l_hip_roll", 0},
                     {"l_hip_pitch", 0}, {"l_knee", 0}, {"l_ankle", 0},
                 });
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                loop_timer.wait();
             }
 
             if (shutdown_requested) {
@@ -442,10 +454,11 @@ public:
                               << (q_d[0]-q[0]) << ", " << (q_d[1]-q[1]) << ", "
                               << (q_d[2]-q[2]) << ", " << (q_d[3]-q[3]) << ", " << (q_d[4]-q[4])
                               << "] | tau (Nm): ["
-                              << tau[0] << ", " << tau[1] << ", " << tau[2] << ", " << tau[3] << ", " << tau[4] << "]" << std::endl;
+                              << tau[0] << ", " << tau[1] << ", " << tau[2] << ", " << tau[3] << ", " << tau[4] << "]"
+                              << " | missed=" << loop_timer.lastMissedTicks() << std::endl;
                     imp_next_print = imp_now + std::chrono::seconds(1);
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                loop_timer.wait();
             }
 
             if (shutdown_requested) {
@@ -559,10 +572,11 @@ public:
                               << (x_desired.y-x_actual.y) << ", " << (x_desired.z-x_actual.z) << "]"
                               << " | tau: [" << clamp(tau_d[0]) << ", " << clamp(tau_d[1]) << ", "
                               << clamp(tau_d[2]) << ", " << clamp(tau_d[3]) << "]"
+                              << " | missed=" << loop_timer.lastMissedTicks()
                               << std::endl;
                     cart_next_print = cart_now + std::chrono::seconds(1);
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                loop_timer.wait();
             }
 
             if (shutdown_requested) {
