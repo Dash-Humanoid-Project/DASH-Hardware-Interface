@@ -94,6 +94,19 @@ public:
         sendToTeensy(serialized_data, serialized_data.size());
     }
 
+    // Sets each ODrive's own onboard position/velocity gains. Per-motor
+    // vectors, positionally aligned with the Teensy's odrives[] order (same
+    // convention as setPositionCommand/setTorqueCommand) — every motor on
+    // this Teensy must be present, since there's no safe default gain value.
+    virtual void sendSetGainsCommand(std::vector<float> pos_gains,
+                                      std::vector<float> vel_gains,
+                                      std::vector<float> vel_integrator_gains) {
+        auto gains_cmd = std::make_shared<SetGainsCommand>(pos_gains, vel_gains, vel_integrator_gains);
+        std::vector<uint8_t> serialized_data = gains_cmd->serializeWithHeader();
+        sendToTeensy(serialized_data, serialized_data.size());
+        std::cout << "Sent SetGains command to Teensy" << std::endl;
+    }
+
     // ----- A3: thread-safe feedback accessors -----
     // Callers use these instead of accessing sys_data_ directly.
 

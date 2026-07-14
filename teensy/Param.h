@@ -148,7 +148,10 @@
 
 // ===== Command buffer sizing =====
 // Maximum serialized payload for any command (excluding type byte and CRC).
-// Worst case: PositionCommand with 8 motors
-//   = 1 (motor count) + 8*4 (floats) + 8*2 (int16 vel_ff) + 2 (int16 torque_ff) = 51 bytes
-// 64 bytes gives comfortable headroom.
-#define MAX_CMD_PAYLOAD_SIZE 64
+// Worst case: PositionCommand or SetGainsCommand with 8 motors, all fields
+// now full floats (Vel_FF/Torque_FF were int16 until the LegController work —
+// see include/Command.h — which truncated them to whole-unit precision)
+//   = 1 (motor count) + 8*4 (pos/pos_gain) + 8*4 (vel_ff/vel_gain)
+//     + 8*4 (torque_ff/vel_integrator_gain) = 97 bytes
+// 128 bytes gives comfortable headroom.
+#define MAX_CMD_PAYLOAD_SIZE 128

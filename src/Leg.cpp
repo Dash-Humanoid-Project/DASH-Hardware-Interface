@@ -7,6 +7,12 @@
 
 namespace {
 constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+
+// A gearbox multiplies torque by the reduction ratio, so the motor-shaft
+// command (what the ODrive's Input_Torque/Torque_FF expects, assuming true
+// motor Kt is configured) must be the joint-space torque divided by that
+// ratio, not sent through directly.
+float gearRatio(const MotorConfig& m) { return m.turns_per_rad * kTwoPi; }
 }
 
 Leg::Leg(UPXtreme& teensy, std::vector<MotorConfig> motors, std::string name)
@@ -53,11 +59,13 @@ JointState Leg::getJointState(const std::string& joint_name) const
 }
 
 void Leg::setPositions(const std::map<std::string, float>& positions_rad,
-                       const std::map<std::string, float>& vel_ff_rad_s)
+                       const std::map<std::string, float>& vel_ff_rad_s,
+                       const std::map<std::string, float>& torque_ff_nm)
 {
     const int n = static_cast<int>(motors_.size());
-    std::vector<Input_Pos_TYPE> pos(n, 0.0f);
-    std::vector<Vel_FF_TYPE>    vel(n, 0);
+    std::vector<Input_Pos_TYPE>  pos(n, 0.0f);
+    std::vector<Vel_FF_TYPE>     vel(n, 0);
+    std::vector<Torque_FF_TYPE>  tau_ff(n, 0.0f);
 
     for (int i = 0; i < n; ++i) {
         const auto& m = motors_[i];
@@ -82,9 +90,20 @@ void Leg::setPositions(const std::map<std::string, float>& positions_rad,
                           << " rad/s (limit +/-" << m.vel_max_rad_s << ")\n";
             vel[i] = static_cast<Vel_FF_TYPE>(qd_clamped * m.turns_per_rad);
         }
+
+        auto tit = torque_ff_nm.find(m.joint_name);
+        if (tit != torque_ff_nm.end()) {
+            float t = tit->second;
+            float t_clamped = clampf(t, -m.tau_max_nm, m.tau_max_nm);
+            if (t_clamped != t)
+                std::cerr << "[Leg] CLAMPED torque_ff: " << m.joint_name
+                          << " requested=" << t << " Nm, applied=" << t_clamped
+                          << " Nm (limit +/-" << m.tau_max_nm << ")\n";
+            tau_ff[i] = static_cast<Torque_FF_TYPE>(t_clamped / gearRatio(m));
+        }
     }
 
-    teensy_.setPositionCommand(std::make_shared<PositionCommand>(pos, vel));
+    teensy_.setPositionCommand(std::make_shared<PositionCommand>(pos, vel, tau_ff));
 }
 
 void Leg::setVelocities(const std::map<std::string, float>& velocities_rad_s)
@@ -125,14 +144,36 @@ void Leg::setTorques(const std::map<std::string, float>& torques_nm)
                           << " requested=" << t << " Nm, applied=" << t_clamped
                           << " Nm (limit +/-" << m.tau_max_nm << ")\n";
 
-            // A gearbox multiplies torque by the reduction ratio, so the
-            // motor-shaft command (what the ODrive's Input_Torque expects,
-            // assuming true motor Kt is configured) must be the joint-space
-            // torque divided by that ratio, not sent through directly.
-            float gear_ratio = m.turns_per_rad * kTwoPi;
-            tau[i] = static_cast<Input_Torque_TYPE>(t_clamped / gear_ratio);
+            tau[i] = static_cast<Input_Torque_TYPE>(t_clamped / gearRatio(m));
         }
     }
 
     teensy_.setTorqueCommand(std::make_shared<TorqueCommand>(tau));
+}
+
+void Leg::setGains(const std::map<std::string, float>& pos_gain,
+                   const std::map<std::string, float>& vel_gain,
+                   const std::map<std::string, float>& vel_integrator_gain)
+{
+    const int n = static_cast<int>(motors_.size());
+    std::vector<float> pg(n), vg(n), vig(n, 0.0f);
+
+    for (int i = 0; i < n; ++i) {
+        const auto& m = motors_[i];
+
+        auto pit = pos_gain.find(m.joint_name);
+        if (pit == pos_gain.end())
+            throw std::runtime_error("Leg::setGains: missing pos_gain for joint: " + m.joint_name);
+        pg[i] = pit->second;
+
+        auto vit = vel_gain.find(m.joint_name);
+        if (vit == vel_gain.end())
+            throw std::runtime_error("Leg::setGains: missing vel_gain for joint: " + m.joint_name);
+        vg[i] = vit->second;
+
+        auto vigit = vel_integrator_gain.find(m.joint_name);
+        if (vigit != vel_integrator_gain.end()) vig[i] = vigit->second;
+    }
+
+    teensy_.sendSetGainsCommand(pg, vg, vig);
 }

@@ -50,6 +50,7 @@ set(SRC_FILES
     src/HardwareBridge.cpp
     src/Imu.cpp
     src/PeriodicTimer.cpp
+    src/LegController.cpp
 )
 
 # library

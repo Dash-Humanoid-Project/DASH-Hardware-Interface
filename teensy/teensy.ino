@@ -474,7 +474,7 @@ void parseAndProcessUDPPacket()
             size_t payload_size = sizeof(uint8_t)
                 + num_motors * sizeof(Input_Pos_TYPE)
                 + num_motors * sizeof(Vel_FF_TYPE)
-                + sizeof(Torque_FF_TYPE);
+                + num_motors * sizeof(Torque_FF_TYPE);
 
             // A1: CRC check — packet layout: [type(1)] [payload(payload_size)] [crc(1)]
             // CRC covers type byte + payload, matching PC sendToTeensy().
@@ -491,15 +491,18 @@ void parseAndProcessUDPPacket()
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
 
-            // Safety clamp: bound each commanded position to this joint's
-            // limits before it ever reaches the ODrive, independent of
-            // whatever the PC sent.
-            for (size_t i = 0; i < num_odrives && i < 5; ++i)
+            // Safety clamp: bound each commanded position and torque
+            // feedforward to this joint's limits before it ever reaches the
+            // ODrive, independent of whatever the PC sent. Torque_FF is
+            // motor-shaft Nm (same convention as TorqueCommand's clamp below).
+            for (size_t i = 0; i < num_odrives && i < 5; ++i) {
                 cmd.Input_Pos[i] = clampf(cmd.Input_Pos[i], q_min_turns[i], q_max_turns[i]);
+                cmd.Torque_FF[i] = clampf(cmd.Torque_FF[i], -tau_max_nm[i], tau_max_nm[i]);
+            }
 
             // A5: loop instead of 4 hardcoded calls
             for (size_t i = 0; i < num_odrives; ++i)
-                odrives[i]->setPosition(cmd.Input_Pos[i], cmd.Vel_FF[i], cmd.Torque_FF);
+                odrives[i]->setPosition(cmd.Input_Pos[i], cmd.Vel_FF[i], cmd.Torque_FF[i]);
             break;
         }
 
@@ -618,6 +621,41 @@ void parseAndProcessUDPPacket()
             // satisfying the comms-loss watchdog during a settling wait
             // without implying or switching to any control mode.
             last_valid_cmd_timer = 0;
+            break;
+        }
+
+        case MsgType::SetGains: {
+            uint8_t num_motors = data[1];
+            size_t payload_size = sizeof(uint8_t)
+                + num_motors * sizeof(Pos_Gain_TYPE)
+                + num_motors * sizeof(Vel_Gain_TYPE)
+                + num_motors * sizeof(Vel_Integrator_Gain_TYPE);
+
+            uint8_t received_crc   = data[1 + payload_size];
+            uint8_t calculated_crc = calculate_crc8(data, 1 + payload_size);
+            if (received_crc != calculated_crc) {
+                Serial.println("CRC MISMATCH: SetGainsCommand dropped");
+                break;
+            }
+            last_valid_cmd_timer = 0;
+
+            memcpy(payload_buf, data + 1, payload_size);
+            SetGainsCommand cmd;
+            std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
+            cmd.deserialize(payload);
+
+            // Negative gains are never correct regardless of tuning — this
+            // is a sign-sanity check, not a magnitude limit (no data exists
+            // to derive a reasonable ceiling, unlike the position/torque
+            // clamps above).
+            for (size_t i = 0; i < num_odrives && i < 5; ++i) {
+                float pg = cmd.Pos_Gain[i] < 0 ? 0.0f : cmd.Pos_Gain[i];
+                float vg = cmd.Vel_Gain[i] < 0 ? 0.0f : cmd.Vel_Gain[i];
+                float vig = cmd.Vel_Integrator_Gain[i] < 0 ? 0.0f : cmd.Vel_Integrator_Gain[i];
+                odrives[i]->setPosGain(pg);
+                odrives[i]->setVelGains(vg, vig);
+            }
+            Serial.println("Applied SetGainsCommand");
             break;
         }
 
