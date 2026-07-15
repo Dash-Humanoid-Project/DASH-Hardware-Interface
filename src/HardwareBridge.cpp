@@ -55,6 +55,32 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
         {"l_ankle",     2, 0, TURNS_PER_RAD_36_1, -0.3f,  0.3f,  1.0f, 0.5f},
     };
     left_leg_ = std::make_unique<Leg>(*teensys_[0], std::move(left_motors), "left_leg");
+
+    // ---- Right leg: always SimUPXtreme-backed, independent of sim_mode_ ----
+    // Not physically wired up yet — Sim here means "no hardware attached",
+    // not "simulating a test run" (that's what --sim/sim_mode_ means for the
+    // left leg above). Bypasses SystemConfig entirely: SimUPXtreme never
+    // opens real sockets, so there's no IP/port to configure, and adding a
+    // real Teensy slot for a leg that isn't physically there would be
+    // misleading. Bus/actuator counts (3, 2) mirror the left leg's own
+    // topology. Gear ratios confirmed identical to the left leg by the user
+    // directly. Joint-limit clamp values are mirrored from the left leg as a
+    // starting point — since this leg only ever drives a simulator, getting
+    // a sign wrong here risks nothing physically, but should still be sanity
+    // -checked (does --cartesian's computed EE position look like a mirror
+    // image of the left leg's, not a flipped-and-wrong one) once RightLeg
+    // kinematics are exercised.
+    teensys_.push_back(std::make_unique<SimUPXtreme>(3, 2, 0.05f, "SimRightLeg"));
+    UPXtreme& right_teensy = *teensys_.back();
+
+    std::vector<MotorConfig> right_motors = {
+        {"r_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
+        {"r_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
+        {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+        {"r_knee",      1, 1, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+        {"r_ankle",     2, 0, TURNS_PER_RAD_36_1, -0.3f,  0.3f,  1.0f, 0.5f},
+    };
+    right_leg_ = std::make_unique<Leg>(right_teensy, std::move(right_motors), "right_leg");
 }
 
 void HardwareBridge::start()

@@ -2,7 +2,7 @@
 #include <map>
 #include <string>
 #include "Leg.h"
-#include "LeftLegKinematics.h"
+#include "LimbKinematics.h"
 
 // Unified joint-space + Cartesian-space PD+feedforward primitive, modeled
 // directly on Cheetah-Software's LegController (common/src/Controllers/
@@ -21,17 +21,23 @@
 // Cheetah's updateCommand() writes Cartesian-derived torque into tau_ff
 // while leaving qDes/kpJoint/kdJoint for the board to track locally.
 //
-// Cartesian terms are scoped to the 4-joint chain LeftLegKinematics.h
-// defines (l_hip_yaw, l_hip_roll, l_hip_pitch, l_knee) — same scope as the
+// Cartesian terms are scoped to the 4-joint chain the injected
+// LimbKinematics defines (kinematics.joint_names) — same scope as the
 // prior --cartesian test mode. Joint-space terms cover every joint on the
 // wrapped Leg (including l_ankle), read generically from Leg::motorConfigs().
+//
+// Which limb's math this instance uses (left leg, right leg, ...) is bound
+// once at construction via a LimbKinematics reference (see LimbKinematics.h,
+// LeftLegKinematics::kinematics(), RightLegKinematics::kinematics()) rather
+// than being hardcoded to LeftLeg — lets one LegController class serve any
+// limb with the same 4-joint-chain shape.
 //
 // Deliberately NOT included (out of scope for this phase): an edamp-style
 // damping-only fallback. Trivial to add later (kpJoint=0, tauFeedForward=0,
 // kdJoint=gain is already expressible) but not built now.
 class LegController {
 public:
-    explicit LegController(Leg& leg);
+    LegController(Leg& leg, const LimbKinematics& kinematics);
 
     // ---------- Command setters ----------
     // Joint-space: must cover every joint on the leg (see Leg::setGains).
@@ -41,10 +47,10 @@ public:
                          const std::map<std::string, float>& qd_des = {});
     void setJointFeedforward(const std::map<std::string, float>& tau_ff_nm);
 
-    // Cartesian-space: applies to the l_hip_yaw/l_hip_roll/l_hip_pitch/l_knee chain only.
-    void setCartesianGains(LeftLeg::Vec3 kp_cartesian, LeftLeg::Vec3 kd_cartesian);
-    void setCartesianTargets(LeftLeg::Vec3 p_des, LeftLeg::Vec3 v_des = {0, 0, 0});
-    void setCartesianFeedforward(LeftLeg::Vec3 force_ff);
+    // Cartesian-space: applies to the injected kinematics' 4-joint chain only.
+    void setCartesianGains(LimbKin::Vec3 kp_cartesian, LimbKin::Vec3 kd_cartesian);
+    void setCartesianTargets(LimbKin::Vec3 p_des, LimbKin::Vec3 v_des = {0, 0, 0});
+    void setCartesianFeedforward(LimbKin::Vec3 force_ff);
 
     // Zeros all command state (gains, targets, feedforward) — safe starting
     // point before the first real setpoint is issued. Mirrors Cheetah's
@@ -59,8 +65,8 @@ public:
 
     const std::map<std::string, float>& q() const  { return q_; }
     const std::map<std::string, float>& qd() const { return qd_; }
-    LeftLeg::Vec3 p() const { return p_; }
-    LeftLeg::Vec3 v() const { return v_; }
+    LimbKin::Vec3 p() const { return p_; }
+    LimbKin::Vec3 v() const { return v_; }
     const std::map<std::string, float>& tauEstimate() const { return tau_estimate_; }
 
     // ---------- Dispatch ----------
@@ -72,20 +78,21 @@ public:
 
 private:
     Leg& leg_;
+    const LimbKinematics& kinematics_;
 
     // Joint-space command state, keyed by joint name (every joint on leg_).
     std::map<std::string, float> kp_joint_, kd_joint_;
     std::map<std::string, float> q_des_, qd_des_;
     std::map<std::string, float> tau_ff_joint_;
 
-    // Cartesian-space command state (l_hip_yaw/l_hip_roll/l_hip_pitch/l_knee chain).
-    LeftLeg::Vec3 kp_cartesian_{0, 0, 0}, kd_cartesian_{0, 0, 0};
-    LeftLeg::Vec3 p_des_{0, 0, 0}, v_des_{0, 0, 0};
-    LeftLeg::Vec3 force_ff_{0, 0, 0};
+    // Cartesian-space command state (kinematics_.joint_names chain).
+    LimbKin::Vec3 kp_cartesian_{0, 0, 0}, kd_cartesian_{0, 0, 0};
+    LimbKin::Vec3 p_des_{0, 0, 0}, v_des_{0, 0, 0};
+    LimbKin::Vec3 force_ff_{0, 0, 0};
 
     // Data, refreshed by updateData().
     std::map<std::string, float> q_, qd_;
-    LeftLeg::Vec3 p_{0, 0, 0}, v_{0, 0, 0};
+    LimbKin::Vec3 p_{0, 0, 0}, v_{0, 0, 0};
     double J_[3][4] = {};
     std::map<std::string, float> tau_estimate_;
 

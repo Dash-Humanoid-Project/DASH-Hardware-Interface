@@ -8,6 +8,10 @@
 // Top-level hardware abstraction that owns all Teensy connections and exposes
 // legs by name. Application code creates one HardwareBridge, calls start(),
 // then interacts exclusively through leftLeg() and rightLeg().
+//
+// rightLeg() is currently always SimUPXtreme-backed (see HardwareBridge.cpp)
+// — the right leg isn't physically wired up yet, so this lets multi-limb
+// code be built and validated in software ahead of that hardware landing.
 class HardwareBridge {
 public:
     explicit HardwareBridge(bool sim_mode = false);

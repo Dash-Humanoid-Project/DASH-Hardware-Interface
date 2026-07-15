@@ -1,25 +1,26 @@
 #pragma once
 #include <cmath>
-#include <cstring>
 #include "LimbKinematics.h"
 
-// Forward kinematics and Jacobian for the DASH left leg.
-// Derived from Dash_URDF/dash.urdf kinematic chain:
-//   torso -> l_hip_yaw -> l_hip_row -> l_hip_pitch -> l_knee -> (ankle)
+// Forward kinematics and Jacobian for the DASH right leg.
+// Derived from Dash_URDF/dash.urdf kinematic chain (r_* joints):
+//   torso -> r_hip_yaw -> r_hip_row -> r_hip_pitch -> r_knee -> (ankle)
 //
-// Assumed ODrive-to-joint mapping:
-//   odrv0 (CAN1, node 0) = l_hip_yaw
-//   odrv1 (CAN1, node 1) = l_hip_row
-//   odrv2 (CAN2, node 0) = l_hip_pitch
-//   odrv3 (CAN2, node 1) = l_knee
+// These are the RIGHT leg's own URDF origin/rpy values, transcribed
+// directly - NOT a sign-flip of LeftLegKinematics.h's numbers. The two
+// legs' frames are mirrored in the CAD, not simply negated (e.g. hip_yaw's
+// rpy is -0.43633231 here vs -2.70526034 on the left; note
+// pi - 2.70526034 = 0.43633231, consistent with a mirrored frame
+// convention rather than a naive sign flip).
+//
+// Assumed ODrive-to-joint mapping (mirrors LeftLegKinematics.h's scheme):
+//   node 0 = r_hip_yaw, node 1 = r_hip_row (CAN bus 0)
+//   node 0 = r_hip_pitch, node 1 = r_knee (CAN bus 1)
 //
 // All joint angles are in radians. All positions are in meters.
 
-namespace LeftLeg {
+namespace RightLeg {
 
-// Vec3/Mat4 live in LimbKin now (shared with RightLegKinematics.h etc.) -
-// aliased back in so every existing LeftLeg::Vec3/LeftLeg::Mat4 call site
-// keeps compiling unchanged.
 using LimbKin::Mat4;
 using LimbKin::Vec3;
 
@@ -64,26 +65,26 @@ inline Mat4 rotRPY(double roll, double pitch, double yaw) {
 // Forward kinematics: joint angles (radians) -> ankle position in torso frame (meters)
 // q[0] = hip_yaw, q[1] = hip_row, q[2] = hip_pitch, q[3] = knee
 inline Vec3 forwardKinematics(const double q[4]) {
-    // l_hip_yaw: torso -> l_prox_hip
-    Mat4 T = translation(0.0, 0.075, 0.0)
-           * rotRPY(-2.70526034, 0.0, 0.0)
+    // r_hip_yaw: torso -> r_prox_hip
+    Mat4 T = translation(-0.0, -0.075, -0.0)
+           * rotRPY(-0.43633231, -0.0, -0.0)
            * rotX(q[0]);
 
-    // l_hip_row: l_prox_hip -> l_dist_hip
-    T = T * translation(-0.05244738, 0.00280747, 0.08171345)
-          * rotRPY(-1.22173048, -0.34906585, -1.57079633)
+    // r_hip_row: r_prox_hip -> r_dist_hip
+    T = T * translation(-0.05244740, 0.00280750, -0.08171350)
+          * rotRPY(1.22171619, 0.34904440, -1.57079633)
           * rotX(q[1]);
 
-    // l_hip_pitch: l_dist_hip -> l_upper_leg
-    T = T * translation(-0.005, 0.0, 0.095)
-          * rotRPY(1.57079633, -1.22173048, 1.57079633)
+    // r_hip_pitch: r_dist_hip -> r_upper_leg
+    T = T * translation(-0.005, 0.0, -0.095)
+          * rotRPY(-1.57079633, 1.22175193, 1.57079633)
           * rotX(q[2]);
 
-    // l_knee: l_upper_leg -> l_lower_leg
-    T = T * translation(0.0, 0.28, 0.0422)
+    // r_knee: r_upper_leg -> r_lower_leg
+    T = T * translation(0.0, 0.28, -0.0422)
           * rotX(q[3]);
 
-    // End-effector: ankle (l_lower_leg -> l_foot offset)
+    // End-effector: ankle (r_lower_leg -> r_foot offset)
     T = T * translation(0.0, 0.28, 0.0);
 
     return {T.m[0][3], T.m[1][3], T.m[2][3]};
@@ -124,9 +125,9 @@ inline void jacobianTransposeMultiply(const double J[3][4], const double F[3], d
 inline const LimbKinematics& kinematics() {
     static const LimbKinematics k{
         &forwardKinematics, &computeJacobian, &jacobianTransposeMultiply,
-        {"l_hip_yaw", "l_hip_roll", "l_hip_pitch", "l_knee"}
+        {"r_hip_yaw", "r_hip_roll", "r_hip_pitch", "r_knee"}
     };
     return k;
 }
 
-} // namespace LeftLeg
+} // namespace RightLeg

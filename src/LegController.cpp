@@ -1,19 +1,14 @@
 #include "LegController.h"
 
 namespace {
-// Joint order matches LeftLegKinematics.h's q[0..3] convention exactly
-// (l_hip_yaw, l_hip_roll, l_hip_pitch, l_knee) — the Cartesian chain this
-// class supports. l_ankle is a valid joint-space-only target but plays no
-// part in the Cartesian terms, same scope as the prior --cartesian mode.
-constexpr const char* kCartesianJoints[4] = {"l_hip_yaw", "l_hip_roll", "l_hip_pitch", "l_knee"};
-
 float mapGet(const std::map<std::string, float>& m, const std::string& key, float def = 0.0f) {
     auto it = m.find(key);
     return it != m.end() ? it->second : def;
 }
 }
 
-LegController::LegController(Leg& leg) : leg_(leg) {}
+LegController::LegController(Leg& leg, const LimbKinematics& kinematics)
+    : leg_(leg), kinematics_(kinematics) {}
 
 void LegController::setJointGains(const std::map<std::string, float>& kp_joint,
                                   const std::map<std::string, float>& kd_joint) {
@@ -31,17 +26,17 @@ void LegController::setJointFeedforward(const std::map<std::string, float>& tau_
     tau_ff_joint_ = tau_ff_nm;
 }
 
-void LegController::setCartesianGains(LeftLeg::Vec3 kp_cartesian, LeftLeg::Vec3 kd_cartesian) {
+void LegController::setCartesianGains(LimbKin::Vec3 kp_cartesian, LimbKin::Vec3 kd_cartesian) {
     kp_cartesian_ = kp_cartesian;
     kd_cartesian_ = kd_cartesian;
 }
 
-void LegController::setCartesianTargets(LeftLeg::Vec3 p_des, LeftLeg::Vec3 v_des) {
+void LegController::setCartesianTargets(LimbKin::Vec3 p_des, LimbKin::Vec3 v_des) {
     p_des_ = p_des;
     v_des_ = v_des;
 }
 
-void LegController::setCartesianFeedforward(LeftLeg::Vec3 force_ff) {
+void LegController::setCartesianFeedforward(LimbKin::Vec3 force_ff) {
     force_ff_ = force_ff;
 }
 
@@ -70,17 +65,18 @@ void LegController::updateData() {
         qd_[kv.first] = kv.second.velocity_rad_s;
     }
 
+    const auto& joints = kinematics_.joint_names;
     double q4[4] = {
-        q_.at(kCartesianJoints[0]), q_.at(kCartesianJoints[1]),
-        q_.at(kCartesianJoints[2]), q_.at(kCartesianJoints[3]),
+        q_.at(joints[0]), q_.at(joints[1]),
+        q_.at(joints[2]), q_.at(joints[3]),
     };
     double qd4[4] = {
-        qd_.at(kCartesianJoints[0]), qd_.at(kCartesianJoints[1]),
-        qd_.at(kCartesianJoints[2]), qd_.at(kCartesianJoints[3]),
+        qd_.at(joints[0]), qd_.at(joints[1]),
+        qd_.at(joints[2]), qd_.at(joints[3]),
     };
 
-    p_ = LeftLeg::forwardKinematics(q4);
-    LeftLeg::computeJacobian(q4, J_);
+    p_ = kinematics_.forwardKinematics(q4);
+    kinematics_.computeJacobian(q4, J_);
 
     v_.x = J_[0][0]*qd4[0] + J_[0][1]*qd4[1] + J_[0][2]*qd4[2] + J_[0][3]*qd4[3];
     v_.y = J_[1][0]*qd4[0] + J_[1][1]*qd4[1] + J_[1][2]*qd4[2] + J_[1][3]*qd4[3];
@@ -91,20 +87,21 @@ void LegController::updateCommand() {
     // Cartesian PD + feedforward -> foot force -> joint torque via J^T.
     // This is the only term computed on the PC; joint-space tracking
     // (qDes/kpJoint/kdJoint below) stays local to the ODrive.
-    LeftLeg::Vec3 pos_err = p_des_ - p_;
-    LeftLeg::Vec3 vel_err = v_des_ - v_;
-    LeftLeg::Vec3 foot_force = force_ff_
-        + LeftLeg::Vec3{kp_cartesian_.x * pos_err.x, kp_cartesian_.y * pos_err.y, kp_cartesian_.z * pos_err.z}
-        + LeftLeg::Vec3{kd_cartesian_.x * vel_err.x, kd_cartesian_.y * vel_err.y, kd_cartesian_.z * vel_err.z};
+    LimbKin::Vec3 pos_err = p_des_ - p_;
+    LimbKin::Vec3 vel_err = v_des_ - v_;
+    LimbKin::Vec3 foot_force = force_ff_
+        + LimbKin::Vec3{kp_cartesian_.x * pos_err.x, kp_cartesian_.y * pos_err.y, kp_cartesian_.z * pos_err.z}
+        + LimbKin::Vec3{kd_cartesian_.x * vel_err.x, kd_cartesian_.y * vel_err.y, kd_cartesian_.z * vel_err.z};
 
     double F[3] = {foot_force.x, foot_force.y, foot_force.z};
     double tau_cartesian[4];
-    LeftLeg::jacobianTransposeMultiply(J_, F, tau_cartesian);
+    kinematics_.jacobianTransposeMultiply(J_, F, tau_cartesian);
 
+    const auto& joints = kinematics_.joint_names;
     std::map<std::string, float> tau_ff_total = tau_ff_joint_;
     for (int i = 0; i < 4; ++i) {
-        float existing = mapGet(tau_ff_total, kCartesianJoints[i]);
-        tau_ff_total[kCartesianJoints[i]] = existing + static_cast<float>(tau_cartesian[i]);
+        float existing = mapGet(tau_ff_total, joints[i]);
+        tau_ff_total[joints[i]] = existing + static_cast<float>(tau_cartesian[i]);
     }
 
     // Diagnostic-only estimate of the resulting torque — not measured,

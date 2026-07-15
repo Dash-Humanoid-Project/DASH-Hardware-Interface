@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <iostream>
 #include <fstream>
@@ -8,17 +9,21 @@
 #include <thread>
 #include "HardwareBridge.h"
 #include "LeftLegKinematics.h"
+#include "RightLegKinematics.h"
 #include "PeriodicTimer.h"
 #include "LegController.h"
+#include "Mode.h"
+#include "ModeDispatcher.h"
+#include "PositionMode.h"
+#include "ImpedanceMode.h"
+#include "CartesianMode.h"
+#include "TestUtils.h"
 
 #define UPXTREME_i14
 
 #ifndef TWO_PI
 #define TWO_PI (2.0 * M_PI)
 #endif
-
-// Global flag for graceful shutdown
-std::atomic<bool> shutdown_requested(false);
 
 void signalHandler(int signum) {
     std::cout << "\n\nCtrl+C detected! Initiating safe shutdown..." << std::endl;
@@ -47,21 +52,6 @@ void signalHandler(int signum) {
 
 // 1 turn = 2π rad. Commands expressed in turns (old code) become: rad = turns * TWO_PI
 static constexpr float TURNS_TO_RAD = static_cast<float>(2.0 * M_PI);
-
-// Keeps the Teensy's comms-loss watchdog satisfied during a settling wait.
-// Uses the no-op Heartbeat message specifically, not a zero-torque command:
-// TorqueCommand forces the Teensy into TORQUE_CONTROL mode as a side effect,
-// which caused a real bug when this preceded a --position sweep (armed but
-// unresponsive, stuck having switched away from POSITION_CONTROL). Heartbeat
-// resets the watchdog with zero effect on control mode or motor state.
-void sendKeepAliveFor(HardwareBridge& bridge, std::chrono::milliseconds duration)
-{
-    auto t0 = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - t0 < duration && !shutdown_requested) {
-        bridge.sendHeartbeat();
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-}
 
 // --position sweep amplitudes, in true joint-space radians now that
 // HardwareBridge.cpp's turns_per_rad correctly accounts for each joint's
@@ -109,238 +99,10 @@ public:
     {
         std::cout << "Running closed-loop control" << std::endl;
 
-        auto start = std::chrono::steady_clock::now();
-
         // Anchored-schedule rate limiter (~500 Hz) — see PeriodicTimer.h.
-        // Shared across all modes below since only one of them runs per
-        // invocation.
+        // Shared across the remaining inline modes below (--position now
+        // routes through PositionMode/ModeDispatcher instead, see main()).
         PeriodicTimer loop_timer(0.002);
-
-        // ---------- position command ----------
-        if (cmd_flag_ == 0)
-        {
-            int i = 0;
-            std::vector<std::chrono::duration<double>> time_log{};
-            time_log.reserve(100000);
-
-            // Logs for each joint (all in radians)
-            std::vector<double> pos_log[5], vel_log[5];
-            for (auto& v : pos_log) v.reserve(100000);
-            for (auto& v : vel_log) v.reserve(100000);
-            std::vector<uint64_t> missed_log{};
-            missed_log.reserve(100000);
-
-            double prev_pos[5] = {-999, -999, -999, -999, -999};
-            double prev_vel[5] = {-999, -999, -999, -999, -999};
-
-            // Wait for initial encoder feedback
-            std::cout << "Waiting for initial encoder feedback..." << std::endl;
-            for (int wait_count = 0; wait_count <= 100 && !shutdown_requested; ++wait_count) {
-                auto js = bridge_.leftLeg().getJointStates();
-                double p0 = js["l_hip_yaw"].position_rad;
-                double p1 = js["l_hip_roll"].position_rad;
-                double p2 = js["l_hip_pitch"].position_rad;
-                double p3 = js["l_knee"].position_rad;
-                double p4 = js["l_ankle"].position_rad;
-
-                if (p0 != 0 || p1 != 0 || p2 != 0 || p3 != 0 || p4 != 0 || wait_count == 100) {
-                    std::cout << "Initial positions (rad): ["
-                              << p0 << ", " << p1 << ", " << p2 << ", " << p3 << ", " << p4 << "]" << std::endl;
-                    std::cout << "Starting control loop... (Ctrl+C to stop)" << std::endl;
-                    break;
-                }
-                // Heartbeat keep-alive: this loop sends nothing otherwise,
-                // which would let the Teensy's comms-loss watchdog trip
-                // before the real sweep ever starts. Heartbeat (not a
-                // zero-torque command) so it doesn't force a switch to
-                // TORQUE_CONTROL right before this mode needs POSITION_CONTROL.
-                bridge_.sendHeartbeat();
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
-
-            // Hold initial position for HOLD_TIME seconds before starting sine
-            auto home = bridge_.leftLeg().getJointStates();
-            float hold[5] = {
-                home["l_hip_yaw"].position_rad,
-                home["l_hip_roll"].position_rad,
-                home["l_hip_pitch"].position_rad,
-                home["l_knee"].position_rad,
-                home["l_ankle"].position_rad,
-            };
-            const float HOLD_TIME = 0.5f;
-
-            // Rate-limited control loop: ~500 Hz matching Teensy feedback rate.
-            // Runs until Ctrl+C.
-            auto next_print = std::chrono::steady_clock::now();
-
-            while (!shutdown_requested)
-            {
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - start).count();
-                float t = 0.001f * duration;
-                float phase = (t < HOLD_TIME) ? 0.0f : (t - HOLD_TIME) * static_cast<float>(TWO_PI / SINE_PERIOD);
-
-                // Position commands (true joint-space radians) — see
-                // POS_AMP_HIP_RAD / POS_AMP_HIP_PITCH_KNEE_RAD above
-                std::map<std::string, float> pos_rad, vel_ff_rad_s;
-                float scale = 1.0f;
-
-                if (t < HOLD_TIME) {
-                    pos_rad = {
-                        {"l_hip_yaw",   hold[0]},
-                        {"l_hip_roll",  hold[1]},
-                        {"l_hip_pitch", hold[2]},
-                        {"l_knee",      hold[3]},
-                        {"l_ankle",     hold[4]},
-                    };
-                    vel_ff_rad_s = {
-                        {"l_hip_yaw", 0}, {"l_hip_roll", 0},
-                        {"l_hip_pitch", 0}, {"l_knee", 0}, {"l_ankle", 0},
-                    };
-                } else {
-                    // Positions in true joint-space rad
-                    float q0 =  sinf(phase) * POS_AMP_HIP_RAD;
-                    float q1 = -sinf(phase) * POS_AMP_HIP_RAD;
-
-                    // Velocity feedforward in rad/s
-                    float dphase_dt = static_cast<float>(TWO_PI / SINE_PERIOD);
-                    float vf0 =  cosf(phase) * dphase_dt * POS_AMP_HIP_RAD;
-                    float vf1 = -cosf(phase) * dphase_dt * POS_AMP_HIP_RAD;
-
-                    // hip_pitch/knee: cosine-based downward sweep (π/2 phase lag)
-                    float q2 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * (sinf(phase - static_cast<float>(M_PI/2)) + 1.0f);
-                    float q3 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * (sinf(phase - static_cast<float>(M_PI/2)) + 1.0f);
-                    float vf2 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * cosf(phase - static_cast<float>(M_PI/2)) * dphase_dt;
-                    float vf3 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * cosf(phase - static_cast<float>(M_PI/2)) * dphase_dt;
-
-                    // l_ankle: no prior motion profile exists in git history, so it is
-                    // held at its home position (vel_ff=0) rather than guessing a sweep.
-                    pos_rad = {
-                        {"l_hip_yaw",   q0},
-                        {"l_hip_roll",  q1},
-                        {"l_hip_pitch", q2},
-                        {"l_knee",      q3},
-                        {"l_ankle",     hold[4]},
-                    };
-                    vel_ff_rad_s = {
-                        {"l_hip_yaw",  scale * vf0},
-                        {"l_hip_roll", scale * vf1},
-                        {"l_hip_pitch", scale * vf2},
-                        {"l_knee",      scale * vf3},
-                        {"l_ankle",     0},
-                    };
-                }
-
-                bridge_.leftLeg().setPositions(pos_rad, vel_ff_rad_s);
-
-#ifndef ENABLE_TIME_BENCHMARK
-                auto js = bridge_.leftLeg().getJointStates();
-                double cp[5] = {
-                    js["l_hip_yaw"].position_rad,
-                    js["l_hip_roll"].position_rad,
-                    js["l_hip_pitch"].position_rad,
-                    js["l_knee"].position_rad,
-                    js["l_ankle"].position_rad,
-                };
-                double cv[5] = {
-                    js["l_hip_yaw"].velocity_rad_s,
-                    js["l_hip_roll"].velocity_rad_s,
-                    js["l_hip_pitch"].velocity_rad_s,
-                    js["l_knee"].velocity_rad_s,
-                    js["l_ankle"].velocity_rad_s,
-                };
-
-                // Log on every new feedback sample
-                bool changed = false;
-                for (int j = 0; j < 5; ++j)
-                    if (cp[j] != prev_pos[j] || cv[j] != prev_vel[j]) changed = true;
-                if (changed)
-                {
-                    time_log.push_back(std::chrono::steady_clock::now().time_since_epoch());
-                    for (int j = 0; j < 5; ++j) {
-                        pos_log[j].push_back(cp[j]);
-                        vel_log[j].push_back(cv[j]);
-                        prev_pos[j] = cp[j];
-                        prev_vel[j] = cv[j];
-                    }
-                    missed_log.push_back(loop_timer.lastMissedTicks());
-                    i++;
-                }
-
-                // Print status once per second
-                auto now = std::chrono::steady_clock::now();
-                if (now >= next_print) {
-                    std::cout << "t=" << t << "s"
-                              << " | pos: [" << cp[0] << ", " << cp[1] << ", " << cp[2] << ", " << cp[3] << ", " << cp[4] << "]"
-                              << " | missed=" << loop_timer.lastMissedTicks() << std::endl;
-                    next_print = now + std::chrono::seconds(1);
-                }
-#endif
-                // Rate-limit to ~500 Hz on a fixed schedule (see PeriodicTimer.h)
-                loop_timer.wait();
-            }
-
-            // Safe shutdown: smoothly return to zero over 2 seconds
-            if (shutdown_requested) {
-                std::cout << "\n=== SAFE SHUTDOWN SEQUENCE ===" << std::endl;
-                std::cout << "Returning motors to home position..." << std::endl;
-
-                auto js = bridge_.leftLeg().getJointStates();
-                float curr[5] = {
-                    js["l_hip_yaw"].position_rad,
-                    js["l_hip_roll"].position_rad,
-                    js["l_hip_pitch"].position_rad,
-                    js["l_knee"].position_rad,
-                    js["l_ankle"].position_rad,
-                };
-                std::cout << "Current positions (rad): ["
-                          << curr[0] << ", " << curr[1] << ", " << curr[2] << ", " << curr[3] << ", " << curr[4] << "]" << std::endl;
-
-                auto t0 = std::chrono::steady_clock::now();
-                float dur = 2.0f;
-                while (true) {
-                    float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - t0).count() / 1000.0f;
-                    if (elapsed >= dur) break;
-                    float p = elapsed / dur;
-                    bridge_.leftLeg().setPositions({
-                        {"l_hip_yaw",   curr[0] * (1.0f - p)},
-                        {"l_hip_roll",  curr[1] * (1.0f - p)},
-                        {"l_hip_pitch", curr[2] * (1.0f - p)},
-                        {"l_knee",      curr[3] * (1.0f - p)},
-                        {"l_ankle",     curr[4] * (1.0f - p)},
-                    });
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-                std::cout << "Motors returned to home position." << std::endl;
-            }
-
-#ifndef ENABLE_TIME_BENCHMARK
-            std::cout << "Logged " << i << " measurements." << std::endl;
-            std::ofstream log_file("../logs/position_measurement_log.csv");
-            if (log_file.is_open()) {
-                log_file << "Time,"
-                         << "l_hip_yaw_pos_rad,l_hip_yaw_vel_rad_s,"
-                         << "l_hip_roll_pos_rad,l_hip_roll_vel_rad_s,"
-                         << "l_hip_pitch_pos_rad,l_hip_pitch_vel_rad_s,"
-                         << "l_knee_pos_rad,l_knee_vel_rad_s,"
-                         << "l_ankle_pos_rad,l_ankle_vel_rad_s,"
-                         << "missed_ticks\n";
-                for (int j = 0; j < i; ++j) {
-                    log_file << time_log[j].count() << ","
-                             << pos_log[0][j] << "," << vel_log[0][j] << ","
-                             << pos_log[1][j] << "," << vel_log[1][j] << ","
-                             << pos_log[2][j] << "," << vel_log[2][j] << ","
-                             << pos_log[3][j] << "," << vel_log[3][j] << ","
-                             << pos_log[4][j] << "," << vel_log[4][j] << ","
-                             << missed_log[j] << "\n";
-                }
-                log_file.close();
-            } else {
-                std::cout << "Unable to open log file." << std::endl;
-            }
-#endif
-        }
 
         // ---------- velocity command ----------
         if (cmd_flag_ == 1)
@@ -377,176 +139,7 @@ public:
                 std::cout << "Torque mode stopped (motors at zero torque)." << std::endl;
             }
         }
-
-        // ---------- joint-space impedance control ----------
-        // Routed through LegController: qDes/kpJoint/kdJoint are sent to the
-        // ODrive for LOCAL tracking (its own onboard position/velocity
-        // cascade, via SetGainsCommand + PositionCommand) rather than the
-        // old approach of computing tau = K*(q_d-q)+D*(0-qd) on the PC every
-        // cycle and open-loop-relaying it via raw TorqueCommand. See
-        // LegController.h for why this matches Cheetah-Software's actual
-        // architecture instead of DASH's prior deviation from it.
-        if (cmd_flag_ == 3)
-        {
-            static const std::string kJoints[5] = {"l_hip_yaw", "l_hip_roll", "l_hip_pitch", "l_knee", "l_ankle"};
-
-            // Stiffness (Nm/rad) and damping (Nm*s/rad) per joint.
-            // hip_yaw/hip_roll: converted from tuned Nm/turn values, K_rad = K_turn / (2π).
-            // hip_pitch/knee/ankle: conservative placeholders pending hardware tuning.
-            //
-            // NOTE: these were tuned before HardwareBridge.cpp's turns_per_rad and
-            // Leg::setTorques gear-ratio fixes, AND before this mode routed through
-            // the ODrive's own local gains instead of a PC-computed open-loop
-            // torque. Needs fresh hardware tuning from a low starting point, not a
-            // straight port of these numbers.
-            float K[5] = {5.0f/TURNS_TO_RAD, 7.5f/TURNS_TO_RAD, 2.0f, 2.0f, 2.0f};
-            float D[5] = {0.1f/TURNS_TO_RAD, 0.2f/TURNS_TO_RAD, 0.1f, 0.1f, 0.1f};
-
-            std::map<std::string, float> kp_map, kd_map, qd_zero_map;
-            for (int j = 0; j < 5; ++j) {
-                kp_map[kJoints[j]] = K[j];
-                kd_map[kJoints[j]] = D[j];
-                qd_zero_map[kJoints[j]] = 0.0f;
-            }
-
-            std::cout << "Waiting for encoder feedback..." << std::endl;
-            sendKeepAliveFor(bridge_, std::chrono::milliseconds(500));
-
-            LegController legController(bridge_.leftLeg());
-            legController.updateData();
-            std::map<std::string, float> q_d = legController.q();  // hold at current position
-
-            legController.setJointGains(kp_map, kd_map);
-            legController.setJointTargets(q_d, qd_zero_map);
-
-            std::cout << "Impedance control active.\n"
-                      << "Home (rad): [" << q_d[kJoints[0]] << ", " << q_d[kJoints[1]] << ", " << q_d[kJoints[2]] << ", " << q_d[kJoints[3]] << ", " << q_d[kJoints[4]] << "]\n"
-                      << "K (Nm/rad): [" << K[0] << ", " << K[1] << ", " << K[2] << ", " << K[3] << ", " << K[4] << "]\n"
-                      << "D (Nm*s/rad): [" << D[0] << ", " << D[1] << ", " << D[2] << ", " << D[3] << ", " << D[4] << "]\n"
-                      << "Push the leg to feel the virtual spring-damper. Ctrl+C to stop." << std::endl;
-
-            auto imp_next_print = std::chrono::steady_clock::now();
-            while (!shutdown_requested)
-            {
-                legController.updateData();
-                legController.updateCommand();
-
-                auto imp_now = std::chrono::steady_clock::now();
-                if (imp_now >= imp_next_print) {
-                    auto q = legController.q();
-                    auto tau_est = legController.tauEstimate();
-                    std::cout << "pos_err (rad): ["
-                              << (q_d[kJoints[0]]-q[kJoints[0]]) << ", " << (q_d[kJoints[1]]-q[kJoints[1]]) << ", "
-                              << (q_d[kJoints[2]]-q[kJoints[2]]) << ", " << (q_d[kJoints[3]]-q[kJoints[3]]) << ", " << (q_d[kJoints[4]]-q[kJoints[4]])
-                              << "] | tau_est (Nm): ["
-                              << tau_est[kJoints[0]] << ", " << tau_est[kJoints[1]] << ", " << tau_est[kJoints[2]] << ", " << tau_est[kJoints[3]] << ", " << tau_est[kJoints[4]] << "]"
-                              << " | missed=" << loop_timer.lastMissedTicks() << std::endl;
-                    imp_next_print = imp_now + std::chrono::seconds(1);
-                }
-                loop_timer.wait();
-            }
-
-            if (shutdown_requested) {
-                std::cout << "\n=== SAFE SHUTDOWN ===" << std::endl;
-                // Zero gains rather than raw zero torque: local ODrive PD
-                // with kp=kd=0 always outputs zero regardless of qDes, so
-                // this is the LegController-routed equivalent of the old
-                // "send zero torque and stop" behavior.
-                std::map<std::string, float> zero_map;
-                for (int j = 0; j < 5; ++j) zero_map[kJoints[j]] = 0.0f;
-                legController.setJointGains(zero_map, zero_map);
-                legController.updateCommand();
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                std::cout << "Zero gains sent. Shutting down." << std::endl;
-            }
-        }
-
-        // ---------- Cartesian impedance control ----------
-        // Routed through LegController's Cartesian terms — the J^T*F torque
-        // is still computed on the PC each cycle (same as before, Cartesian
-        // resolution has no local-board equivalent here), but joint-level
-        // gains are now explicitly zeroed and sent via SetGainsCommand
-        // rather than relying on raw TorqueCommand's implicit open-loop
-        // relay. See LegController.h.
-        if (cmd_flag_ == 4)
-        {
-            static const std::string kJoints[5] = {"l_hip_yaw", "l_hip_roll", "l_hip_pitch", "l_knee", "l_ankle"};
-
-            // NOTE: tuned before the gear-ratio fixes. Two things changed here:
-            // (1) forward kinematics/Jacobian consume joint-space q, which was
-            // previously over-reported by the gear ratio — the computed EE
-            // position/Jacobian were physically wrong before and are only now
-            // correct; (2) torque delivery is now divided by gear ratio instead
-            // of passed straight through, so the realized Cartesian stiffness
-            // is much softer than before at the same Kx. Needs fresh hardware
-            // tuning, not a straight port of these numbers.
-            LeftLeg::Vec3 Kx{1.0f, 1.0f, 1.0f};  // N/m
-            LeftLeg::Vec3 Dx{0.0f, 0.0f, 0.0f};  // Ns/m — velocity noise diagnostic
-
-            std::cout << "Waiting for encoder feedback..." << std::endl;
-            sendKeepAliveFor(bridge_, std::chrono::milliseconds(500));
-
-            LegController legController(bridge_.leftLeg());
-            legController.updateData();
-            LeftLeg::Vec3 x_desired = legController.p();
-            std::map<std::string, float> q_home = legController.q();
-
-            // No local joint-space tracking for this mode — all authority
-            // comes from the Cartesian term. Every joint (including
-            // l_ankle, outside the Cartesian chain) gets kp=kd=0 so the
-            // ODrive outputs pure feedforward, same as the old torque-mode
-            // behavior of "untouched joints get zero."
-            std::map<std::string, float> zero_map, qd_zero_map;
-            for (int j = 0; j < 5; ++j) { zero_map[kJoints[j]] = 0.0f; qd_zero_map[kJoints[j]] = 0.0f; }
-            legController.setJointGains(zero_map, zero_map);
-            legController.setJointTargets(q_home, qd_zero_map);
-            legController.setCartesianGains(Kx, Dx);
-            legController.setCartesianTargets(x_desired);
-
-            std::cout << "Cartesian impedance control active (full 4-joint chain).\n"
-                      << "Home EE position (m): ["
-                      << x_desired.x << ", " << x_desired.y << ", " << x_desired.z << "]\n"
-                      << "Kx (N/m): [" << Kx.x << ", " << Kx.y << ", " << Kx.z << "]\n"
-                      << "Dx (Ns/m): [" << Dx.x << ", " << Dx.y << ", " << Dx.z << "]\n"
-                      << "tau_max (per joint) = " << bridge_.leftLeg().motorConfigs()[0].tau_max_nm << " Nm (enforced by the standard safety clamp)\n"
-                      << "Push the leg to feel the Cartesian spring-damper. Ctrl+C to stop." << std::endl;
-
-            auto cart_next_print = std::chrono::steady_clock::now();
-            while (!shutdown_requested)
-            {
-                legController.updateData();
-                legController.updateCommand();
-
-                auto cart_now = std::chrono::steady_clock::now();
-                if (cart_now >= cart_next_print) {
-                    LeftLeg::Vec3 x_actual = legController.p();
-                    auto tau_est = legController.tauEstimate();
-                    std::cout << "x: [" << x_actual.x << ", " << x_actual.y << ", " << x_actual.z
-                              << "] | err: [" << (x_desired.x-x_actual.x) << ", "
-                              << (x_desired.y-x_actual.y) << ", " << (x_desired.z-x_actual.z) << "]"
-                              << " | tau_est: [" << tau_est[kJoints[0]] << ", " << tau_est[kJoints[1]] << ", "
-                              << tau_est[kJoints[2]] << ", " << tau_est[kJoints[3]] << "]"
-                              << " | missed=" << loop_timer.lastMissedTicks()
-                              << std::endl;
-                    cart_next_print = cart_now + std::chrono::seconds(1);
-                }
-                loop_timer.wait();
-            }
-
-            if (shutdown_requested) {
-                std::cout << "\n=== SAFE SHUTDOWN ===" << std::endl;
-                // Gains are already zero; also zero the Cartesian gains and
-                // feedforward so the additive torque term drops out too.
-                legController.setCartesianGains({0, 0, 0}, {0, 0, 0});
-                legController.setCartesianFeedforward({0, 0, 0});
-                legController.updateCommand();
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                std::cout << "Zero gains sent. Shutting down." << std::endl;
-            }
-        }
     }
-
-    float SINE_PERIOD = 5.0f; // seconds
 
 private:
     int cmd_flag_;
@@ -651,13 +244,53 @@ int main(int argc, char* argv[])
         std::cout << "All ODrives should now be in IDLE state." << std::endl;
         return 0;
     }
+    else if (flag == "--position" || flag == "--impedance" || flag == "--cartesian") {
+        std::cout << "Command type: " << flag.substr(2) << "\n";
+        HardwareBridge bridge(sim_mode);
+        bridge.start();
+
+        // Self-arm — same reasoning as the one-shot branches above: the
+        // watchdog means a prior, separate --start invocation can no longer
+        // be relied on to still be armed by the time this runs.
+        std::cout << "Arming closed-loop control..." << std::endl;
+        bridge.startClosedLoop();
+
+        LegController left_ctrl(bridge.leftLeg(), LeftLeg::kinematics());
+        LegController right_ctrl(bridge.rightLeg(), RightLeg::kinematics());
+        PeriodicTimer loop_timer(0.002);
+
+        // All three modes are always constructed, regardless of which flag
+        // started the process — that's what makes live keyboard switching
+        // between them work. --velocity/--torque stay outside this
+        // dispatcher entirely (see below): they exercise raw ODrive axis
+        // modes the Leg/LegController abstraction structurally can't
+        // express, same reasoning as Phase 2.
+        PositionMode position_mode(bridge, bridge.leftLeg(), bridge.rightLeg(), loop_timer);
+        ImpedanceMode impedance_mode(bridge, left_ctrl, right_ctrl, loop_timer);
+        CartesianMode cartesian_mode(bridge, left_ctrl, right_ctrl, loop_timer);
+
+        std::map<char, Mode*> key_to_mode = {
+            {'p', &position_mode}, {'i', &impedance_mode}, {'c', &cartesian_mode},
+        };
+        Mode* initial_mode = (flag == "--position")  ? static_cast<Mode*>(&position_mode)
+                            : (flag == "--impedance") ? static_cast<Mode*>(&impedance_mode)
+                                                       : static_cast<Mode*>(&cartesian_mode);
+        ModeDispatcher dispatcher(key_to_mode, initial_mode);
+
+        std::cout << "Live-switch keys: 'p' position, 'i' impedance, 'c' cartesian. Ctrl+C to stop." << std::endl;
+        while (!shutdown_requested) {
+            dispatcher.tick();
+            loop_timer.wait();
+        }
+        dispatcher.current().onExit();
+
+        bridge.stop();
+        return 0;
+    }
 
     int cmd_flag = 0;
-    if      (flag == "--position")  { std::cout << "Command type: position\n";           cmd_flag = 0; }
-    else if (flag == "--velocity")  { std::cout << "Command type: velocity\n";           cmd_flag = 1; }
+    if      (flag == "--velocity")  { std::cout << "Command type: velocity\n";           cmd_flag = 1; }
     else if (flag == "--torque")    { std::cout << "Command type: torque\n";             cmd_flag = 2; }
-    else if (flag == "--impedance") { std::cout << "Command type: impedance\n";          cmd_flag = 3; }
-    else if (flag == "--cartesian") { std::cout << "Command type: cartesian impedance\n";cmd_flag = 4; }
     else {
         std::cout << "Unknown flag: " << flag << std::endl;
         std::cout << "Usage: " << argv[0]

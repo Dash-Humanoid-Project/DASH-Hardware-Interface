@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstring>
+#include "LimbKinematics.h"
 
 // Forward kinematics and Jacobian for the DASH left leg.
 // Derived from Dash_URDF/dash.urdf kinematic chain:
@@ -16,35 +17,11 @@
 
 namespace LeftLeg {
 
-struct Mat4 {
-    double m[4][4];
-
-    static Mat4 identity() {
-        Mat4 r;
-        memset(r.m, 0, sizeof(r.m));
-        r.m[0][0] = r.m[1][1] = r.m[2][2] = r.m[3][3] = 1.0;
-        return r;
-    }
-
-    Mat4 operator*(const Mat4& b) const {
-        Mat4 r;
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 4; j++) {
-                r.m[i][j] = 0;
-                for (int k = 0; k < 4; k++)
-                    r.m[i][j] += m[i][k] * b.m[k][j];
-            }
-        return r;
-    }
-};
-
-struct Vec3 {
-    double x, y, z;
-
-    Vec3 operator-(const Vec3& b) const { return {x - b.x, y - b.y, z - b.z}; }
-    Vec3 operator+(const Vec3& b) const { return {x + b.x, y + b.y, z + b.z}; }
-    Vec3 operator*(double s) const { return {x * s, y * s, z * s}; }
-};
+// Vec3/Mat4 live in LimbKin now (shared with RightLegKinematics.h etc.) -
+// aliased back in so every existing LeftLeg::Vec3/LeftLeg::Mat4 call site
+// keeps compiling unchanged.
+using LimbKin::Mat4;
+using LimbKin::Vec3;
 
 inline Mat4 translation(double x, double y, double z) {
     Mat4 T = Mat4::identity();
@@ -140,6 +117,16 @@ inline void jacobianTransposeMultiply(const double J[3][4], const double F[3], d
             tau[i] += J[j][i] * F[j];
         }
     }
+}
+
+// The kinematics-injection seam LegController binds to at construction -
+// see LimbKinematics.h.
+inline const LimbKinematics& kinematics() {
+    static const LimbKinematics k{
+        &forwardKinematics, &computeJacobian, &jacobianTransposeMultiply,
+        {"l_hip_yaw", "l_hip_roll", "l_hip_pitch", "l_knee"}
+    };
+    return k;
 }
 
 } // namespace LeftLeg

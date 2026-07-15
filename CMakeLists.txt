@@ -51,6 +51,8 @@ set(SRC_FILES
     src/Imu.cpp
     src/PeriodicTimer.cpp
     src/LegController.cpp
+    src/KeyboardInput.cpp
+    src/ModeDispatcher.cpp
 )
 
 # library
@@ -58,7 +60,13 @@ add_library(dash_hardware_interface SHARED ${SRC_FILES})
 target_link_libraries(dash_hardware_interface Threads::Threads libvncxx)
 
 # executable
-add_executable(closed_loop_test test/ClosedLoopControlTest.cpp)
+add_executable(closed_loop_test
+    test/ClosedLoopControlTest.cpp
+    test/TestUtils.cpp
+    test/PositionMode.cpp
+    test/ImpedanceMode.cpp
+    test/CartesianMode.cpp
+)
 target_link_libraries(closed_loop_test dash_hardware_interface)
 
 # Executable for UDP benchmark test
