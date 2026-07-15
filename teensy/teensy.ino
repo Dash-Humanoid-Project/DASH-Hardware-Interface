@@ -80,9 +80,11 @@ ODriveCAN odrv4(wrap_can_intf(ODRV4_CAN), ODRV4_CAN_NODE_ID);
 
 ODriveCAN* odrives[]      = {&odrv0, &odrv1, &odrv2, &odrv3, &odrv4};
 ODriveCAN* odrives_can1[] = {&odrv0, &odrv1};
-// odrv4 (l_ankle) now shares the physical CAN2 wire with odrv2/odrv3 — see
-// ODRV4_CAN in Param.h. CAN3 is currently unused on this Teensy.
-ODriveCAN* odrives_can2[] = {&odrv2, &odrv3, &odrv4};
+ODriveCAN* odrives_can2[] = {&odrv2, &odrv3};
+// odrv4 (l_ankle) back on its own dedicated CAN3 bus — see ODRV4_CAN in
+// Param.h. Previously shared CAN2 with odrv2/odrv3; moved back after 3-node
+// CAN2 bus load caused audible jerking on l_hip_pitch/l_knee.
+ODriveCAN* odrives_can3[] = {&odrv4};
 
 // Per-joint safety limits, indexed to match odrives[] above. Firmware-level
 // backstop — enforced independently of the PC-side clamp in Leg.cpp, so a
@@ -126,6 +128,7 @@ ODriveUserData* odrives_data[] = {
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
     ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
+    uint32_t prev_error = odrv_user_data->last_heartbeat.Axis_Error;
     odrv_user_data->last_heartbeat = msg;
     odrv_user_data->received_heartbeat = true;
 
@@ -139,20 +142,26 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
             Serial.print(" NOT in closed loop! State=");
             Serial.println(msg.Axis_State);
         }
-        if (msg.Axis_Error != 0) {
-            Serial.print("ERROR: ODrive bus=");
-            Serial.print(odrv_user_data->bus_idx_);
-            Serial.print(" node=");
-            Serial.print(odrv_user_data->node_idx_);
-            Serial.print(" has error code: 0x");
-            Serial.println(msg.Axis_Error, HEX);
-        }
+    }
+
+    // Edge-triggered (checked every heartbeat, not just once per 5000): a
+    // fault that raises and clears within one 5000-heartbeat window would
+    // otherwise never get printed at all.
+    if (msg.Axis_Error != prev_error) {
+        Serial.print(msg.Axis_Error != 0 ? "ERROR: " : "CLEARED: ");
+        Serial.print("ODrive bus=");
+        Serial.print(odrv_user_data->bus_idx_);
+        Serial.print(" node=");
+        Serial.print(odrv_user_data->node_idx_);
+        Serial.print(" error code: 0x");
+        Serial.println(msg.Axis_Error, HEX);
     }
 }
 
 // Called every time a feedback message arrives from the ODrive
 void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
     ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
+    odrv_user_data->last_feedback = msg;
     odrv_user_data->received_feedback = true;
     sys_data_->setEncoderEstimateAtBusAndNode(
         msg.Pos_Estimate, msg.Vel_Estimate,
@@ -179,10 +188,8 @@ void onCanMessage2(const CanMsg& msg) {
     for (auto odrive: odrives_can2) { onReceive(msg, *odrive); }
 }
 
-// CAN3 currently has no ODrives wired to it (l_ankle moved to CAN2) — no-op,
-// kept so pumpEvents(can3) in loop() still has a registered handler.
 void onCanMessage3(const CanMsg& msg) {
-    (void)msg;
+    for (auto odrive: odrives_can3) { onReceive(msg, *odrive); }
 }
 
 // ===== Setup =====
@@ -331,8 +338,7 @@ bool setupCAN()
     can1.onReceive(onCanMessage1);
     can1.setClock(CLK_60MHz);
 
-    // CAN2: auto-distribute for left-leg node IDs 2–4 (l_hip_pitch, l_knee,
-    // l_ankle — l_ankle moved here from CAN3, see ODRV4_CAN in Param.h)
+    // CAN2: auto-distribute for left-leg node IDs 2-3 (l_hip_pitch, l_knee)
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
     can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
@@ -341,8 +347,7 @@ bool setupCAN()
     can2.distribute();
     can2.setClock(CLK_60MHz);
 
-    // CAN3: currently unused (no ODrives wired to it) — initialized for
-    // completeness/future use only.
+    // CAN3: node ID 4 (l_ankle) — see ODRV4_CAN in Param.h
     can3.begin();
     can3.setBaudRate(CAN_BAUDRATE);
     can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
@@ -383,6 +388,26 @@ void loop()
     pumpEvents(can1);
     pumpEvents(can2);
     pumpEvents(can3);
+
+    // Serial Plotter feed (Tools > Serial Plotter) — 50 Hz is plenty for a
+    // human-readable plot and keeps Serial overhead from perturbing loop
+    // timing. Labeled "b{bus}n{node}_..." to match the bus/node identifiers
+    // already used in the warning/error prints above.
+    static elapsedMillis plot_timer;
+    if (plot_timer >= 20) {
+        plot_timer = 0;
+        for (size_t i = 0; i < num_odrives_data; ++i) {
+            ODriveUserData* d = odrives_data[i];
+            Serial.print("b"); Serial.print(d->bus_idx_);
+            Serial.print("n"); Serial.print(d->node_idx_);
+            Serial.print("_pos:"); Serial.print(d->last_feedback.Pos_Estimate, 4);
+            Serial.print(" b"); Serial.print(d->bus_idx_);
+            Serial.print("n"); Serial.print(d->node_idx_);
+            Serial.print("_fault:"); Serial.print(d->last_heartbeat.Axis_Error != 0 ? 1 : 0);
+            Serial.print(" ");
+        }
+        Serial.println();
+    }
 
     parseAndProcessUDPPacket();
     if (!first_packet_recv) return;

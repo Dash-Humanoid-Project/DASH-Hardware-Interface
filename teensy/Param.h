@@ -50,8 +50,9 @@
 #define ODRV1_CAN_BUS_ID 0
 #define ODRV2_CAN_BUS_ID 1
 #define ODRV3_CAN_BUS_ID 1
-#define ODRV4_CAN_BUS_ID 2  // logical SystemData bus only — physically shares
-                            // the CAN2 wire with ODRV2/ODRV3 (see ODRV4_CAN below)
+#define ODRV4_CAN_BUS_ID 2  // logical SystemData bus only — unchanged so the
+                            // PC-Teensy wire protocol doesn't need updating;
+                            // physically back on its own CAN3 wire (see ODRV4_CAN below)
 // Teensy 2
 #define ODRV5_CAN_BUS_ID 0
 #define ODRV6_CAN_BUS_ID 0
@@ -63,8 +64,10 @@
 #define ODRV1_CAN can1
 #define ODRV2_CAN can2
 #define ODRV3_CAN can2
-#define ODRV4_CAN can2  // l_ankle: moved from CAN3 to CAN2 (shares the physical
-                        // bus with l_hip_pitch/l_knee); CAN3 is currently unused
+#define ODRV4_CAN can3  // l_ankle: back on its own dedicated CAN3 bus (previously
+                        // shared CAN2 with l_hip_pitch/l_knee; moved back after
+                        // CAN2 bus load with 3 nodes caused audible jerking on
+                        // l_hip_pitch/l_knee during --position testing)
 // Teensy 2 uses the same physical peripherals (can1/can2) on its own board
 #define ODRV5_CAN can1
 #define ODRV6_CAN can1

@@ -121,6 +121,7 @@ ODriveUserData* odrives_data[] = {
 // Called every time a Heartbeat message arrives from the ODrive
 void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
     ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
+    uint32_t prev_error = odrv_user_data->last_heartbeat.Axis_Error;
     odrv_user_data->last_heartbeat = msg;
     odrv_user_data->received_heartbeat = true;
 
@@ -134,20 +135,26 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
             Serial.print(" NOT in closed loop! State=");
             Serial.println(msg.Axis_State);
         }
-        if (msg.Axis_Error != 0) {
-            Serial.print("ERROR: ODrive bus=");
-            Serial.print(odrv_user_data->bus_idx_);
-            Serial.print(" node=");
-            Serial.print(odrv_user_data->node_idx_);
-            Serial.print(" has error code: 0x");
-            Serial.println(msg.Axis_Error, HEX);
-        }
+    }
+
+    // Edge-triggered (checked every heartbeat, not just once per 5000): a
+    // fault that raises and clears within one 5000-heartbeat window would
+    // otherwise never get printed at all.
+    if (msg.Axis_Error != prev_error) {
+        Serial.print(msg.Axis_Error != 0 ? "ERROR: " : "CLEARED: ");
+        Serial.print("ODrive bus=");
+        Serial.print(odrv_user_data->bus_idx_);
+        Serial.print(" node=");
+        Serial.print(odrv_user_data->node_idx_);
+        Serial.print(" error code: 0x");
+        Serial.println(msg.Axis_Error, HEX);
     }
 }
 
 // Called every time a feedback message arrives from the ODrive
 void onFeedback(Get_Encoder_Estimates_msg_t& msg, void* user_data) {
     ODriveUserData* odrv_user_data = static_cast<ODriveUserData*>(user_data);
+    odrv_user_data->last_feedback = msg;
     odrv_user_data->received_feedback = true;
     sys_data_->setEncoderEstimateAtBusAndNode(
         msg.Pos_Estimate, msg.Vel_Estimate,
@@ -330,6 +337,26 @@ void loop()
 {
     pumpEvents(can1);
     pumpEvents(can2);
+
+    // Serial Plotter feed (Tools > Serial Plotter) — 50 Hz is plenty for a
+    // human-readable plot and keeps Serial overhead from perturbing loop
+    // timing. Labeled "b{bus}n{node}_..." to match the bus/node identifiers
+    // already used in the warning/error prints above.
+    static elapsedMillis plot_timer;
+    if (plot_timer >= 20) {
+        plot_timer = 0;
+        for (size_t i = 0; i < num_odrives_data; ++i) {
+            ODriveUserData* d = odrives_data[i];
+            Serial.print("b"); Serial.print(d->bus_idx_);
+            Serial.print("n"); Serial.print(d->node_idx_);
+            Serial.print("_pos:"); Serial.print(d->last_feedback.Pos_Estimate, 4);
+            Serial.print(" b"); Serial.print(d->bus_idx_);
+            Serial.print("n"); Serial.print(d->node_idx_);
+            Serial.print("_fault:"); Serial.print(d->last_heartbeat.Axis_Error != 0 ? 1 : 0);
+            Serial.print(" ");
+        }
+        Serial.println();
+    }
 
     parseAndProcessUDPPacket();
     if (!first_packet_recv) return;

@@ -4,7 +4,7 @@
 
 // Interval between msg in ms. Set to 0 to disable
 #define HEARTBEAT_MSG_RATE_MS 100
-#define ENCODER_MSG_RATE_MS  1    // 500 Hz
+#define ENCODER_MSG_RATE_MS  2    // 500 Hz
 #define MAX_ODRIVE_COUNT 18
 #define ENDPOINT_WRITE_RETRIES 5
 

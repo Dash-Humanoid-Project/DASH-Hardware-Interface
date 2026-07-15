@@ -183,7 +183,7 @@ public:
                 // Position commands (true joint-space radians) — see
                 // POS_AMP_HIP_RAD / POS_AMP_HIP_PITCH_KNEE_RAD above
                 std::map<std::string, float> pos_rad, vel_ff_rad_s;
-                float scale = 0.5f;
+                float scale = 1.0f;
 
                 if (t < HOLD_TIME) {
                     pos_rad = {
