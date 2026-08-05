@@ -14,17 +14,27 @@ constexpr float SINE_PERIOD = 5.0f;
 
 // --position sweep amplitudes, in true joint-space radians now that
 // HardwareBridge.cpp's turns_per_rad correctly accounts for each joint's
-// gear ratio. Sized to ~85-90% of each joint's clamp (see the MotorConfig
-// limits in HardwareBridge.cpp) so the sweep stays clear of the boundary.
+// gear ratio. Temporarily shrunk to a tiny test sweep (~2026-07-28) — was
+// 0.55/1.7 rad (~85-90% of each joint's clamp); bump back up once the new
+// left-arm wiring has been confirmed not to have disturbed anything.
 // Identical for both legs — gear ratios/limits are confirmed the same.
-constexpr float POS_AMP_HIP_RAD            = 0.55f;  // hip_yaw/hip_roll, limit +/-0.63 rad
-constexpr float POS_AMP_HIP_PITCH_KNEE_RAD = 1.7f;   // hip_pitch/knee depth, limit -1.89 rad
+constexpr float POS_AMP_HIP_RAD            = 0.05f;  // hip_yaw/hip_roll, limit +/-0.63 rad
+constexpr float POS_AMP_HIP_PITCH_KNEE_RAD = 0.15f;  // hip_pitch/knee depth, limit -1.89 rad
+
+// Arm sweep amplitude — small and symmetric around home. No arm joint has
+// any swept-motion precedent (unlike the hip amplitudes above, which were
+// sized against real prior test data), so this is picked conservative
+// relative to the placeholder +/-0.63 rad clamp (see HardwareBridge.cpp),
+// just enough to visibly move for hardware debugging.
+constexpr float POS_AMP_ARM_RAD = 0.1f;
 
 const char* kJointSuffixes[5] = {"hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle"};
+const char* kArmJointSuffixes[4] = {"shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow"};
 } // namespace
 
-PositionMode::PositionMode(HardwareBridge& bridge, Leg& left, Leg& right, PeriodicTimer& loop_timer)
-    : bridge_(bridge), left_(left), right_(right), loop_timer_(loop_timer)
+PositionMode::PositionMode(HardwareBridge& bridge, Leg& left, Leg& right, Leg& arm, Leg& right_arm,
+                            PeriodicTimer& loop_timer)
+    : bridge_(bridge), left_(left), right_(right), arm_(arm), right_arm_(right_arm), loop_timer_(loop_timer)
 {
     for (double& v : prev_pos_) v = -999;
     for (double& v : prev_vel_) v = -999;
@@ -83,6 +93,48 @@ void PositionMode::sweepTargets(const std::string& prefix, const float hold[5],
     };
 }
 
+void PositionMode::armSweepTargets(const std::string& prefix, const float hold[4],
+                                    float t, float phase,
+                                    std::map<std::string, float>& pos_rad,
+                                    std::map<std::string, float>& vel_ff_rad_s)
+{
+    if (t < HOLD_TIME) {
+        pos_rad = {
+            {prefix + "shoulder_pitch", hold[0]},
+            {prefix + "shoulder_roll",  hold[1]},
+            {prefix + "shoulder_yaw",   hold[2]},
+            {prefix + "elbow",          hold[3]},
+        };
+        vel_ff_rad_s = {
+            {prefix + "shoulder_pitch", 0}, {prefix + "shoulder_roll", 0},
+            {prefix + "shoulder_yaw", 0}, {prefix + "elbow", 0},
+        };
+        return;
+    }
+
+    // Simple symmetric sine sweep, alternating sign per joint (mirrors the
+    // hip_yaw/hip_roll pairing above) purely so adjacent joints visibly move
+    // in different directions — not modeling any real coordinated arm motion.
+    // Centered on absolute joint zero, not the captured hold[] position —
+    // same convention sweepTargets() above uses for hip_yaw/roll/pitch/knee,
+    // kept consistent rather than introducing a different behavior here.
+    // Identical for both arms — no evidence either needs a different amplitude.
+    float dphase_dt = static_cast<float>(TWO_PI / SINE_PERIOD);
+    float s = sinf(phase) * POS_AMP_ARM_RAD;
+    float vf = cosf(phase) * dphase_dt * POS_AMP_ARM_RAD;
+
+    pos_rad = {
+        {prefix + "shoulder_pitch", s},
+        {prefix + "shoulder_roll",  -s},
+        {prefix + "shoulder_yaw",   s},
+        {prefix + "elbow",          -s},
+    };
+    vel_ff_rad_s = {
+        {prefix + "shoulder_pitch", vf}, {prefix + "shoulder_roll", -vf},
+        {prefix + "shoulder_yaw", vf}, {prefix + "elbow", -vf},
+    };
+}
+
 void PositionMode::onEnter()
 {
     i_ = 0;
@@ -128,6 +180,18 @@ void PositionMode::onEnter()
     hold_right_[3] = home_right["r_knee"].position_rad;
     hold_right_[4] = home_right["r_ankle"].position_rad;
 
+    auto home_arm = arm_.getJointStates();
+    hold_arm_[0] = home_arm["l_shoulder_pitch"].position_rad;
+    hold_arm_[1] = home_arm["l_shoulder_roll"].position_rad;
+    hold_arm_[2] = home_arm["l_shoulder_yaw"].position_rad;
+    hold_arm_[3] = home_arm["l_elbow"].position_rad;
+
+    auto home_right_arm = right_arm_.getJointStates();
+    hold_right_arm_[0] = home_right_arm["r_shoulder_pitch"].position_rad;
+    hold_right_arm_[1] = home_right_arm["r_shoulder_roll"].position_rad;
+    hold_right_arm_[2] = home_right_arm["r_shoulder_yaw"].position_rad;
+    hold_right_arm_[3] = home_right_arm["r_elbow"].position_rad;
+
     start_ = std::chrono::steady_clock::now();
     next_print_ = start_;
 }
@@ -139,31 +203,43 @@ void PositionMode::run()
     float t = 0.001f * duration;
     float phase = (t < HOLD_TIME) ? 0.0f : (t - HOLD_TIME) * static_cast<float>(TWO_PI / SINE_PERIOD);
 
-    std::map<std::string, float> pos_left, vel_left, pos_right, vel_right;
+    std::map<std::string, float> pos_left, vel_left, pos_right, vel_right, pos_arm, vel_arm, pos_right_arm, vel_right_arm;
     sweepTargets("l_", hold_left_,  t, phase, pos_left,  vel_left);
     sweepTargets("r_", hold_right_, t, phase, pos_right, vel_right);
+    armSweepTargets("l_", hold_arm_,       t, phase, pos_arm,       vel_arm);
+    armSweepTargets("r_", hold_right_arm_, t, phase, pos_right_arm, vel_right_arm);
 
     left_.setPositions(pos_left, vel_left);
     right_.setPositions(pos_right, vel_right);
+    arm_.setPositions(pos_arm, vel_arm);
+    right_arm_.setPositions(pos_right_arm, vel_right_arm);
 
 #ifndef ENABLE_TIME_BENCHMARK
     auto jl = left_.getJointStates();
     auto jr = right_.getJointStates();
-    double cp[10], cv[10];
+    auto ja = arm_.getJointStates();
+    auto jra = right_arm_.getJointStates();
+    double cp[18], cv[18];
     for (int j = 0; j < 5; ++j) {
         cp[j]     = jl[std::string("l_") + kJointSuffixes[j]].position_rad;
         cv[j]     = jl[std::string("l_") + kJointSuffixes[j]].velocity_rad_s;
         cp[j + 5] = jr[std::string("r_") + kJointSuffixes[j]].position_rad;
         cv[j + 5] = jr[std::string("r_") + kJointSuffixes[j]].velocity_rad_s;
     }
+    for (int j = 0; j < 4; ++j) {
+        cp[j + 10] = ja[std::string("l_") + kArmJointSuffixes[j]].position_rad;
+        cv[j + 10] = ja[std::string("l_") + kArmJointSuffixes[j]].velocity_rad_s;
+        cp[j + 14] = jra[std::string("r_") + kArmJointSuffixes[j]].position_rad;
+        cv[j + 14] = jra[std::string("r_") + kArmJointSuffixes[j]].velocity_rad_s;
+    }
 
-    // Log on every new feedback sample (either leg)
+    // Log on every new feedback sample (either leg, or either arm)
     bool changed = false;
-    for (int j = 0; j < 10; ++j)
+    for (int j = 0; j < 18; ++j)
         if (cp[j] != prev_pos_[j] || cv[j] != prev_vel_[j]) changed = true;
     if (changed) {
         time_log_.push_back(std::chrono::steady_clock::now().time_since_epoch());
-        for (int j = 0; j < 10; ++j) {
+        for (int j = 0; j < 18; ++j) {
             pos_log_[j].push_back(cp[j]);
             vel_log_[j].push_back(cv[j]);
             prev_pos_[j] = cp[j];
@@ -178,6 +254,8 @@ void PositionMode::run()
         std::cout << "t=" << t << "s"
                   << " | L pos: [" << cp[0] << ", " << cp[1] << ", " << cp[2] << ", " << cp[3] << ", " << cp[4] << "]"
                   << " | R pos: [" << cp[5] << ", " << cp[6] << ", " << cp[7] << ", " << cp[8] << ", " << cp[9] << "]"
+                  << " | Arm pos: [" << cp[10] << ", " << cp[11] << ", " << cp[12] << ", " << cp[13] << "]"
+                  << " | RArm pos: [" << cp[14] << ", " << cp[15] << ", " << cp[16] << ", " << cp[17] << "]"
                   << " | missed=" << loop_timer_.lastMissedTicks() << std::endl;
         next_print_ = now + std::chrono::seconds(1);
     }
@@ -191,10 +269,16 @@ void PositionMode::onExit()
 
     auto jl = left_.getJointStates();
     auto jr = right_.getJointStates();
-    float curr_left[5], curr_right[5];
+    auto ja = arm_.getJointStates();
+    auto jra = right_arm_.getJointStates();
+    float curr_left[5], curr_right[5], curr_arm[4], curr_right_arm[4];
     for (int j = 0; j < 5; ++j) {
         curr_left[j]  = jl[std::string("l_") + kJointSuffixes[j]].position_rad;
         curr_right[j] = jr[std::string("r_") + kJointSuffixes[j]].position_rad;
+    }
+    for (int j = 0; j < 4; ++j) {
+        curr_arm[j] = ja[std::string("l_") + kArmJointSuffixes[j]].position_rad;
+        curr_right_arm[j] = jra[std::string("r_") + kArmJointSuffixes[j]].position_rad;
     }
     std::cout << "Current L positions (rad): ["
               << curr_left[0] << ", " << curr_left[1] << ", " << curr_left[2] << ", "
@@ -221,6 +305,18 @@ void PositionMode::onExit()
             {"r_knee",      curr_right[3] * (1.0f - p)},
             {"r_ankle",     curr_right[4] * (1.0f - p)},
         });
+        arm_.setPositions({
+            {"l_shoulder_pitch", curr_arm[0] * (1.0f - p)},
+            {"l_shoulder_roll",  curr_arm[1] * (1.0f - p)},
+            {"l_shoulder_yaw",   curr_arm[2] * (1.0f - p)},
+            {"l_elbow",          curr_arm[3] * (1.0f - p)},
+        });
+        right_arm_.setPositions({
+            {"r_shoulder_pitch", curr_right_arm[0] * (1.0f - p)},
+            {"r_shoulder_roll",  curr_right_arm[1] * (1.0f - p)},
+            {"r_shoulder_yaw",   curr_right_arm[2] * (1.0f - p)},
+            {"r_elbow",          curr_right_arm[3] * (1.0f - p)},
+        });
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     std::cout << "Motors returned to home position." << std::endl;
@@ -240,10 +336,18 @@ void PositionMode::onExit()
                  << "r_hip_pitch_pos_rad,r_hip_pitch_vel_rad_s,"
                  << "r_knee_pos_rad,r_knee_vel_rad_s,"
                  << "r_ankle_pos_rad,r_ankle_vel_rad_s,"
+                 << "l_shoulder_pitch_pos_rad,l_shoulder_pitch_vel_rad_s,"
+                 << "l_shoulder_roll_pos_rad,l_shoulder_roll_vel_rad_s,"
+                 << "l_shoulder_yaw_pos_rad,l_shoulder_yaw_vel_rad_s,"
+                 << "l_elbow_pos_rad,l_elbow_vel_rad_s,"
+                 << "r_shoulder_pitch_pos_rad,r_shoulder_pitch_vel_rad_s,"
+                 << "r_shoulder_roll_pos_rad,r_shoulder_roll_vel_rad_s,"
+                 << "r_shoulder_yaw_pos_rad,r_shoulder_yaw_vel_rad_s,"
+                 << "r_elbow_pos_rad,r_elbow_vel_rad_s,"
                  << "missed_ticks\n";
         for (int j = 0; j < i_; ++j) {
             log_file << time_log_[j].count();
-            for (int k = 0; k < 10; ++k)
+            for (int k = 0; k < 18; ++k)
                 log_file << "," << pos_log_[k][j] << "," << vel_log_[k][j];
             log_file << "," << missed_log_[j] << "\n";
         }

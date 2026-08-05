@@ -10,6 +10,8 @@
 #include "HardwareBridge.h"
 #include "LeftLegKinematics.h"
 #include "RightLegKinematics.h"
+#include "LeftArmKinematics.h"
+#include "RightArmKinematics.h"
 #include "PeriodicTimer.h"
 #include "LegController.h"
 #include "Mode.h"
@@ -18,6 +20,7 @@
 #include "ImpedanceMode.h"
 #include "CartesianMode.h"
 #include "TestUtils.h"
+#include "TrajectoryPlayback.h"
 
 #define UPXTREME_i14
 
@@ -155,21 +158,31 @@ int main(int argc, char* argv[])
     if (argc < 2) {
         std::cout << "Usage: " << argv[0]
                   << " [--position | --velocity | --torque | --impedance | --cartesian"
-                  << " | --start | --idle | --reset] [--sim]" << std::endl;
+                  << " | --start | --idle | --reset | --record | --playback] [--sim] [--right | --both]"
+                  << " (--right selects the right arm, --both records/plays both arms together"
+                  << " and simultaneously, for --record/--playback; left arm alone otherwise)"
+                  << std::endl;
         return 1;
     }
 
-    // Parse --sim from any argument position
+    // Parse --sim/--right/--both from any argument position
     bool sim_mode = false;
+    bool right_arm_flag = false;
+    bool both_arms_flag = false;
     std::string flag;
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--sim") sim_mode = true;
+        else if (std::string(argv[i]) == "--right") right_arm_flag = true;
+        else if (std::string(argv[i]) == "--both") both_arms_flag = true;
         else flag = argv[i];
     }
     if (flag.empty()) {
         std::cout << "Usage: " << argv[0]
                   << " [--position | --velocity | --torque | --impedance | --cartesian"
-                  << " | --start | --idle | --reset] [--sim]" << std::endl;
+                  << " | --start | --idle | --reset | --record | --playback] [--sim] [--right | --both]"
+                  << " (--right selects the right arm, --both records/plays both arms together"
+                  << " and simultaneously, for --record/--playback; left arm alone otherwise)"
+                  << std::endl;
         return 1;
     }
     if (sim_mode) std::cout << "[SIM MODE] Running without hardware." << std::endl;
@@ -244,6 +257,47 @@ int main(int argc, char* argv[])
         std::cout << "All ODrives should now be in IDLE state." << std::endl;
         return 0;
     }
+    else if (flag == "--record") {
+        HardwareBridge bridge(sim_mode);
+        bridge.start();
+        // Left arm keeps the original unqualified filename (existing recordings from
+        // before the right arm existed live there) — right arm and both-arms each
+        // get their own file rather than sharing/overwriting it.
+        if (both_arms_flag) {
+            std::cout << "Command type: record (hand-guide both arms together, save the trajectory)" << std::endl;
+            auto traj = recordBothArmsTrajectory(bridge, bridge.leftArm(), bridge.rightArm());
+            saveDualArmTrajectoryCSV(traj, "../logs/both_arms_trajectory.csv");
+        } else if (right_arm_flag) {
+            std::cout << "Command type: record (hand-guide the right arm, save the trajectory)" << std::endl;
+            auto traj = recordArmTrajectory(bridge, bridge.rightArm(), "r_");
+            saveTrajectoryCSV(traj, "../logs/arm_trajectory_right.csv", "r_");
+        } else {
+            std::cout << "Command type: record (hand-guide the left arm, save the trajectory)" << std::endl;
+            auto traj = recordArmTrajectory(bridge, bridge.leftArm(), "l_");
+            saveTrajectoryCSV(traj, "../logs/arm_trajectory.csv", "l_");
+        }
+        bridge.stop();
+        return 0;
+    }
+    else if (flag == "--playback") {
+        HardwareBridge bridge(sim_mode);
+        bridge.start();
+        if (both_arms_flag) {
+            std::cout << "Command type: playback (replay the recorded both-arms trajectory)" << std::endl;
+            auto traj = loadDualArmTrajectoryCSV("../logs/both_arms_trajectory.csv");
+            playBothArmsTrajectory(bridge, bridge.leftArm(), bridge.rightArm(), traj);
+        } else if (right_arm_flag) {
+            std::cout << "Command type: playback (replay the recorded right arm trajectory)" << std::endl;
+            auto traj = loadTrajectoryCSV("../logs/arm_trajectory_right.csv");
+            playArmTrajectory(bridge, bridge.rightArm(), traj, "r_");
+        } else {
+            std::cout << "Command type: playback (replay the recorded left arm trajectory)" << std::endl;
+            auto traj = loadTrajectoryCSV("../logs/arm_trajectory.csv");
+            playArmTrajectory(bridge, bridge.leftArm(), traj, "l_");
+        }
+        bridge.stop();
+        return 0;
+    }
     else if (flag == "--position" || flag == "--impedance" || flag == "--cartesian") {
         std::cout << "Command type: " << flag.substr(2) << "\n";
         HardwareBridge bridge(sim_mode);
@@ -257,6 +311,8 @@ int main(int argc, char* argv[])
 
         LegController left_ctrl(bridge.leftLeg(), LeftLeg::kinematics());
         LegController right_ctrl(bridge.rightLeg(), RightLeg::kinematics());
+        LegController arm_ctrl(bridge.leftArm(), LeftArm::kinematics());
+        LegController right_arm_ctrl(bridge.rightArm(), RightArm::kinematics());
         PeriodicTimer loop_timer(0.002);
 
         // All three modes are always constructed, regardless of which flag
@@ -265,9 +321,10 @@ int main(int argc, char* argv[])
         // dispatcher entirely (see below): they exercise raw ODrive axis
         // modes the Leg/LegController abstraction structurally can't
         // express, same reasoning as Phase 2.
-        PositionMode position_mode(bridge, bridge.leftLeg(), bridge.rightLeg(), loop_timer);
-        ImpedanceMode impedance_mode(bridge, left_ctrl, right_ctrl, loop_timer);
-        CartesianMode cartesian_mode(bridge, left_ctrl, right_ctrl, loop_timer);
+        PositionMode position_mode(bridge, bridge.leftLeg(), bridge.rightLeg(), bridge.leftArm(),
+                                    bridge.rightArm(), loop_timer);
+        ImpedanceMode impedance_mode(bridge, left_ctrl, right_ctrl, arm_ctrl, right_arm_ctrl, loop_timer);
+        CartesianMode cartesian_mode(bridge, left_ctrl, right_ctrl, arm_ctrl, right_arm_ctrl, loop_timer);
 
         std::map<char, Mode*> key_to_mode = {
             {'p', &position_mode}, {'i', &impedance_mode}, {'c', &cartesian_mode},
@@ -295,7 +352,7 @@ int main(int argc, char* argv[])
         std::cout << "Unknown flag: " << flag << std::endl;
         std::cout << "Usage: " << argv[0]
                   << " [--position | --velocity | --torque | --impedance | --cartesian"
-                  << " | --start | --idle | --reset]" << std::endl;
+                  << " | --start | --idle | --reset | --record | --playback] [--sim] [--right]" << std::endl;
         return 1;
     }
 

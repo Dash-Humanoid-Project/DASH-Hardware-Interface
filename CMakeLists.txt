@@ -66,6 +66,7 @@ add_executable(closed_loop_test
     test/PositionMode.cpp
     test/ImpedanceMode.cpp
     test/CartesianMode.cpp
+    test/TrajectoryPlayback.cpp
 )
 target_link_libraries(closed_loop_test dash_hardware_interface)
 
@@ -95,6 +96,14 @@ set(TEENSY2_DIR
     ${CMAKE_SOURCE_DIR}/teensy2
 )
 
+set(TEENSY3_DIR
+    ${CMAKE_SOURCE_DIR}/teensy3
+)
+
+set(TEENSY4_DIR
+    ${CMAKE_SOURCE_DIR}/teensy4
+)
+
 set(TEENSY_DIR_PARAM_ONLY
     ${CMAKE_SOURCE_DIR}/test/CAN_cyclic_msg_benchmark
     ${CMAKE_SOURCE_DIR}/test/CAN_noncyclic_msg_benchmark
@@ -103,7 +112,9 @@ set(TEENSY_DIR_PARAM_ONLY
 add_custom_target(copy_to_teensy_dir ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY2_DIR}
-    COMMENT "Copying selected files to teensy/ and teensy2/ directories"
+    COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY3_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${FILES_TO_COPY} ${TEENSY4_DIR}
+    COMMENT "Copying selected files to teensy/, teensy2/, teensy3/, and teensy4/ directories"
 )
 
 add_custom_target(copy_teensy_CAN_dir ALL

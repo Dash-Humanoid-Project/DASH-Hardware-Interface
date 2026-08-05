@@ -49,6 +49,12 @@ public:
     int numJoints() const { return static_cast<int>(motors_.size()); }
     const std::vector<MotorConfig>& motorConfigs() const { return motors_; }
 
+    // Idles / arms just this leg's own Teensy — lets you e.g. hand-guide one
+    // limb (backdrivable) while others are left untouched, unlike
+    // HardwareBridge::idle()/startClosedLoop() which act on every Teensy.
+    void idle() { teensy_.sendIdleCommand(); }
+    void startClosedLoop() { teensy_.sendStartCommand(); }
+
 private:
     UPXtreme& teensy_;
     std::vector<MotorConfig> motors_;  // sorted by (bus_idx, node_idx)
