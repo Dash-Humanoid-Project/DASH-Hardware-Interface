@@ -56,6 +56,26 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
     };
     left_leg_ = std::make_unique<Leg>(*teensys_[0], std::move(left_motors), "left_leg");
 
+    // ---- Right leg (Teensy 2) ----
+    // Bus 0: r_hip_yaw (slot 0), r_hip_roll (slot 1)
+    // Bus 1: r_hip_pitch (slot 0), r_knee (slot 1)
+    // r_ankle (ODRV9, reserved) is not physically installed, so unlike the
+    // left leg's l_ankle there's no 5th MotorConfig entry or 3rd CAN bus
+    // here (SystemConfig gives Teensy 2 only 2 bus lines). Gear ratios
+    // confirmed identical to the left leg by the user directly. Joint-limit
+    // clamp values are mirrored from the left leg as a starting point (same
+    // placeholder caveat as the left leg above) — should be sanity-checked
+    // against real right-leg motion (does --cartesian's computed EE position
+    // look like a correct mirror image of the left leg's, not a flipped-and-
+    // wrong one) once exercised.
+    std::vector<MotorConfig> right_motors = {
+        {"r_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
+        {"r_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
+        {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+        {"r_knee",      1, 1, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+    };
+    right_leg_ = std::make_unique<Leg>(*teensys_[1], std::move(right_motors), "right_leg");
+
     // ---- Left arm (Teensy 3) ----
     // Bus 0: l_shoulder_pitch (slot 0), l_shoulder_roll (slot 1)
     // Bus 1: l_shoulder_yaw (slot 0), l_elbow (slot 1)
@@ -99,7 +119,7 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
         {"l_shoulder_yaw",   1, 0, TURNS_PER_RAD_10_1, -1.3f,  0.63f, 2.0f, 3.0f},
         {"l_elbow",          1, 1, TURNS_PER_RAD_10_1, -1.0f,  0.6f,  2.0f, 3.0f},
     };
-    left_arm_ = std::make_unique<Leg>(*teensys_[1], std::move(left_arm_motors), "left_arm");
+    left_arm_ = std::make_unique<Leg>(*teensys_[2], std::move(left_arm_motors), "left_arm");
 
     // ---- Right arm (Teensy 4) ----
     // Bus 0: r_shoulder_pitch (slot 0), r_shoulder_roll (slot 1)
@@ -123,33 +143,7 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
         {"r_shoulder_yaw",   1, 0, TURNS_PER_RAD_10_1, -0.63f, 1.15f, 2.0f, 3.0f},
         {"r_elbow",          1, 1, TURNS_PER_RAD_10_1, -1.0f,  0.6f,  2.0f, 3.0f},
     };
-    right_arm_ = std::make_unique<Leg>(*teensys_[2], std::move(right_arm_motors), "right_arm");
-
-    // ---- Right leg: always SimUPXtreme-backed, independent of sim_mode_ ----
-    // Not physically wired up yet — Sim here means "no hardware attached",
-    // not "simulating a test run" (that's what --sim/sim_mode_ means for the
-    // left leg above). Bypasses SystemConfig entirely: SimUPXtreme never
-    // opens real sockets, so there's no IP/port to configure, and adding a
-    // real Teensy slot for a leg that isn't physically there would be
-    // misleading. Bus/actuator counts (3, 2) mirror the left leg's own
-    // topology. Gear ratios confirmed identical to the left leg by the user
-    // directly. Joint-limit clamp values are mirrored from the left leg as a
-    // starting point — since this leg only ever drives a simulator, getting
-    // a sign wrong here risks nothing physically, but should still be sanity
-    // -checked (does --cartesian's computed EE position look like a mirror
-    // image of the left leg's, not a flipped-and-wrong one) once RightLeg
-    // kinematics are exercised.
-    teensys_.push_back(std::make_unique<SimUPXtreme>(3, 2, 0.05f, "SimRightLeg"));
-    UPXtreme& right_teensy = *teensys_.back();
-
-    std::vector<MotorConfig> right_motors = {
-        {"r_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
-        {"r_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
-        {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
-        {"r_knee",      1, 1, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
-        {"r_ankle",     2, 0, TURNS_PER_RAD_36_1, -0.3f,  0.3f,  1.0f, 0.5f},
-    };
-    right_leg_ = std::make_unique<Leg>(right_teensy, std::move(right_motors), "right_leg");
+    right_arm_ = std::make_unique<Leg>(*teensys_[3], std::move(right_arm_motors), "right_arm");
 }
 
 void HardwareBridge::start()

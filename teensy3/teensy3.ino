@@ -2,24 +2,23 @@
 // IP: 10.176.32.35 (ASSUMED — verify against the physical Teensy 3's
 //     flashed static IP before first boot; see Param.h's TEENSY3_IP)
 // Port: 8002
-// ODrive node IDs: 5 (l_shoulder_pitch), 6 (l_shoulder_roll),
-//                  7 (l_shoulder_yaw), 8 (l_elbow)
-// CAN1: nodes 5, 6  |  CAN2: nodes 7, 8
+// ODrive node IDs: 10 (l_shoulder_pitch), 11 (l_shoulder_roll),
+//                  12 (l_shoulder_yaw), 13 (l_elbow)
+// CAN1: nodes 10, 11  |  CAN2: nodes 12, 13
 //
-// Local variable/array names below use the ODRV10-13 macro suffixes (this
-// project's own sequential Param.h indexing scheme), NOT the real CAN
-// node_id (which happens to also be 5-8, same numeric values as the right
-// leg's Teensy 2 — safe because Teensy 3 has its own physically isolated
-// CAN1/CAN2 wiring, see Param.h's node ID block for the full explanation).
-// Don't confuse "odrv10" the variable with node_id 10 — it's still node_id 5.
+// Relabeled 2026-09-02: node_id now matches the ODRV10-13 macro suffix
+// exactly (previously node_id was 5-8, reused from the right leg's values —
+// safe since Teensy 3 has its own isolated CAN1/CAN2 wiring, but confusing
+// to read). The physical ODrives on this Teensy must be reconfigured to
+// node_id 10-13 via odrivetool before this firmware will talk to them
+// correctly — see Param.h's node ID block.
 //
 // Generated from teensy2/teensy2.ino (Teensy 2, right leg) with these changes:
 //   - staticIP → 10.176.32.35
 //   - teensy_udp_port_listening / PC_udp_port_listening → 8002
 //   - ODrive objects and user data → odrv10..13 (ODRV10-13 macros, Param.h)
 //   - sys_data_ initialised with N_ODRIVE_CAN6, N_ODRIVE_CAN7
-//   - CAN1 mailbox filters unchanged numerically (node IDs 5, 6 — same
-//     values as Teensy 2's CAN1, different physical bus)
+//   - CAN1 mailbox filters recomputed for node IDs 10, 11
 
 #define TEENSY_4_1
 
@@ -82,7 +81,7 @@ static bool watchdog_tripped = false;
 // Static payload buffer — avoids heap allocation at 500 Hz.
 static uint8_t payload_buf[MAX_CMD_PAYLOAD_SIZE];
 
-// ----- ODrive objects (left arm: node_id 5-8, local index 10-13) -----
+// ----- ODrive objects (left arm: node_id 10-13) -----
 ODriveCAN odrv10(wrap_can_intf(ODRV10_CAN), ODRV10_CAN_NODE_ID);
 ODriveCAN odrv11(wrap_can_intf(ODRV11_CAN), ODRV11_CAN_NODE_ID);
 ODriveCAN odrv12(wrap_can_intf(ODRV12_CAN), ODRV12_CAN_NODE_ID);
@@ -129,9 +128,9 @@ ODriveUserData* odrives_data[] = {
     &odrv12_user_data, &odrv13_user_data
 };
 
-// Real CAN node_id per odrives[] slot (5,6,7,8) — used only for console
-// prints, since the local variable/array names (odrv10..13) use this
-// project's Param.h index scheme rather than the node_id itself.
+// Real CAN node_id per odrives[] slot (10,11,12,13) — used only for console
+// prints; now numerically identical to the local variable/array names
+// (odrv10..13) since the 2026-09-02 relabel.
 static constexpr int node_ids[] = {ODRV10_CAN_NODE_ID, ODRV11_CAN_NODE_ID, ODRV12_CAN_NODE_ID, ODRV13_CAN_NODE_ID};
 
 // Called every time a Heartbeat message arrives from the ODrive
@@ -299,20 +298,20 @@ bool setupEthernetWithStaticIP()
 
 bool setupCAN()
 {
-    // CAN1: manual mailbox assignment for arm node IDs 5–6
+    // CAN1: manual mailbox assignment for arm node IDs 10–11
     // CAN frame ID = (node_id << 5) | cmd_id
-    //   node 5 encoder (cmd 0x09): 5*32+9  = 0x0A9
-    //   node 6 encoder (cmd 0x09): 6*32+9  = 0x0C9
-    //   node 5 heartbeat (cmd 0x01): 5*32+1 = 0x0A1
-    //   node 6 heartbeat (cmd 0x01): 6*32+1 = 0x0C1
-    //   node 5 cmd 0x05: 5*32+5 = 0x0A5
-    //   node 6 cmd 0x05: 6*32+5 = 0x0C5
+    //   node 10 encoder (cmd 0x09): 10*32+9  = 0x149
+    //   node 11 encoder (cmd 0x09): 11*32+9  = 0x169
+    //   node 10 heartbeat (cmd 0x01): 10*32+1 = 0x141
+    //   node 11 heartbeat (cmd 0x01): 11*32+1 = 0x161
+    //   node 10 cmd 0x05: 10*32+5 = 0x145
+    //   node 11 cmd 0x05: 11*32+5 = 0x165
     can1.begin();
     can1.setBaudRate(CAN_BAUDRATE);
     can1.setMaxMB(20);
 
     // High-frequency mailboxes (2 per ID for buffering)
-    uint16_t highFreqIDs[] = { 0x0A9, 0x0C9 };
+    uint16_t highFreqIDs[] = { 0x149, 0x169 };
     int mb = 0;
     for (int i = 0; i < 2; i++) {
         can1.setMB(mb, RX); can1.setMBFilter(mb, highFreqIDs[i]); mb++;
@@ -320,7 +319,7 @@ bool setupCAN()
     }
 
     // Lower-frequency mailboxes
-    uint16_t lowFreqIDs[] = { 0x0A1, 0x0C1, 0x0A5, 0x0C5 };
+    uint16_t lowFreqIDs[] = { 0x141, 0x161, 0x145, 0x165 };
     for (int i = 0; i < 4; i++) {
         can1.setMB(mb, RX); can1.setMBFilter(mb, lowFreqIDs[i]); mb++;
     }
@@ -335,7 +334,7 @@ bool setupCAN()
     can1.onReceive(onCanMessage1);
     can1.setClock(CLK_60MHz);
 
-    // CAN2: auto-distribute for arm node IDs 7–8
+    // CAN2: auto-distribute for arm node IDs 12–13
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
     can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);

@@ -1,22 +1,19 @@
 #pragma once
 
 // ===== ODrive CAN node IDs =====
-// Each ODrive has a globally unique node ID, even across separate Teensys.
+// Each ODrive has a globally unique node ID, even across separate Teensys —
+// relabeled 2026-09-02 so every macro name matches its real node_id exactly,
+// no reuse/offset scheme anywhere:
 // Teensy 1 (left leg):  node IDs 0–4
 // Teensy 2 (right leg): node IDs 5–9  (9 = r_ankle, reserved)
-// Teensy 3 (left arm):  node IDs 5–8 — REUSES the right leg's node ID
-//   values. This is intentional, not a collision: node_id only needs to be
-//   unique per physical CAN bus, and Teensy 3 has its own isolated CAN1/
-//   CAN2 wiring, electrically separate from Teensy 2's. Confirmed directly
-//   by the user (2026-07-28) that the arm's ODrives were flashed with
-//   node_id 5-8 to match their own physical board labeling. The macro
-//   *names* below (ODRV10-13) are this project's own sequential indexing
-//   scheme for array/Param.h bookkeeping and are unrelated to the node_id
-//   value itself — don't confuse "ODRV10" the macro with node_id 10.
-// Teensy 4 (right arm): node IDs 14–17 — genuinely unique this time (no
-//   reuse needed), confirmed directly by the user (2026-07-28). Macro names
-//   ODRV14-17 match the real node_id values here, unlike Teensy 3's offset
-//   scheme above.
+// Teensy 3 (left arm):  node IDs 10–13
+// Teensy 4 (right arm): node IDs 14–17
+// The physical ODrives on Teensy 3 must be reconfigured to node_id 10-13
+// (via odrivetool: `odrv0.axis0.config.can.node_id = 10` etc., then
+// `odrv0.save_configuration()`) to match — they previously ran node_id 5-8
+// (reused from the right leg's values, safe only because Teensy 3 has its
+// own isolated CAN1/CAN2 wiring). This firmware/Param.h side won't talk to
+// the arm's ODrives correctly until that reflash is done.
 #define ODRV0_CAN_NODE_ID 0   // l_hip_yaw
 #define ODRV1_CAN_NODE_ID 1   // l_hip_roll
 #define ODRV2_CAN_NODE_ID 2   // l_hip_pitch
@@ -27,10 +24,10 @@
 #define ODRV7_CAN_NODE_ID 7   // r_hip_pitch
 #define ODRV8_CAN_NODE_ID 8   // r_knee
 #define ODRV9_CAN_NODE_ID 9   // r_ankle (reserved)
-#define ODRV10_CAN_NODE_ID 5  // l_shoulder_pitch (Teensy 3, own isolated CAN bus)
-#define ODRV11_CAN_NODE_ID 6  // l_shoulder_roll  (Teensy 3, own isolated CAN bus)
-#define ODRV12_CAN_NODE_ID 7  // l_shoulder_yaw   (Teensy 3, own isolated CAN bus)
-#define ODRV13_CAN_NODE_ID 8  // l_elbow          (Teensy 3, own isolated CAN bus)
+#define ODRV10_CAN_NODE_ID 10 // l_shoulder_pitch (Teensy 3, own isolated CAN bus)
+#define ODRV11_CAN_NODE_ID 11 // l_shoulder_roll  (Teensy 3, own isolated CAN bus)
+#define ODRV12_CAN_NODE_ID 12 // l_shoulder_yaw   (Teensy 3, own isolated CAN bus)
+#define ODRV13_CAN_NODE_ID 13 // l_elbow          (Teensy 3, own isolated CAN bus)
 #define ODRV14_CAN_NODE_ID 14 // r_shoulder_pitch (Teensy 4, own isolated CAN bus)
 #define ODRV15_CAN_NODE_ID 15 // r_shoulder_roll  (Teensy 4, own isolated CAN bus)
 #define ODRV16_CAN_NODE_ID 16 // r_shoulder_yaw   (Teensy 4, own isolated CAN bus)

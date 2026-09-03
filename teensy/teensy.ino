@@ -40,7 +40,7 @@ EthernetUDP udp;
 bool first_packet_recv = false;
 
 // Deferred link-state info: set in the onLinkState callback (unsafe to call
-// Ethernet.linkSpeed() / linkIsFullDuplex() there), printed from setup().
+// Ethernet.linkInfo() there), printed from setup().
 static volatile bool link_state_changed = false;
 static volatile bool link_is_up = false;
 
@@ -206,18 +206,19 @@ void setup()
     }
     delay(2000);
 
-    // Print link speed/duplex here — safe to call Ethernet.linkSpeed() /
-    // linkIsFullDuplex() outside the onLinkState callback.
+    // Print link speed/duplex here — safe to call Ethernet.linkInfo()
+    // outside the onLinkState callback.
     if (link_state_changed) {
         Serial.print("[");
         Serial.print(millis());
         Serial.print("ms] Link state: ");
         Serial.print(link_is_up ? "UP" : "DOWN");
         if (link_is_up) {
+            LinkInfo info = Ethernet.linkInfo();
             Serial.print(" (");
-            Serial.print(Ethernet.linkSpeed());
+            Serial.print(info.speed);
             Serial.print("Mbps ");
-            Serial.print(Ethernet.linkIsFullDuplex() ? "Full" : "Half");
+            Serial.print(info.fullNotHalfDuplex ? "Full" : "Half");
             Serial.print(" Duplex)");
         }
         Serial.println();
@@ -286,9 +287,9 @@ void setup()
 
 bool setupEthernetWithStaticIP()
 {
-    // Only do GPIO in the callback — calling Ethernet.linkSpeed() /
-    // linkIsFullDuplex() here reads PHY registers over MDIO while the
-    // ENET peripheral may not be fully initialised, which hangs the MAC.
+    // Only do GPIO in the callback — calling Ethernet.linkInfo() here
+    // reads PHY registers over MDIO while the ENET peripheral may not be
+    // fully initialised, which hangs the MAC.
     Ethernet.onLinkState([](bool state) {
         digitalWrite(LED_BUILTIN, state ? HIGH : LOW);
         link_is_up = state;

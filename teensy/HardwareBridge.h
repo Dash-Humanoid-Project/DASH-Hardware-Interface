@@ -9,11 +9,8 @@
 // limbs by name. Application code creates one HardwareBridge, calls start(),
 // then interacts exclusively through leftLeg()/rightLeg()/leftArm()/rightArm().
 //
-// rightLeg() is currently always SimUPXtreme-backed (see HardwareBridge.cpp)
-// — the right leg isn't physically wired up yet, so this lets multi-limb
-// code be built and validated in software ahead of that hardware landing.
-// leftLeg(), leftArm(), and rightArm() are all real hardware (Teensy 1 / 3 / 4),
-// gated by sim_mode like any other real limb.
+// All four limbs (Teensy 1/2/3/4 = left leg/right leg/left arm/right arm) are
+// real hardware, gated by sim_mode like any other real limb.
 class HardwareBridge {
 public:
     explicit HardwareBridge(bool sim_mode = false);
