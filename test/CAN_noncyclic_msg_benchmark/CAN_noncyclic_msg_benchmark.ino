@@ -129,10 +129,15 @@ bool setupCAN()
       mb++;
     }
 
-    // Fallback/wildcard mailboxes
+    // Fallback/wildcard mailboxes. setMBFilter(mb, id) is an EXACT-match
+    // filter regardless of id value (its mask always computes to "match
+    // all bits") — 0x000 was never a real wildcard here, just a filter
+    // for ID 0x000 specifically. ACCEPT_ALL (not a numeric id) is the
+    // actual accept-all mechanism, since it zeroes the hardware mask
+    // register instead of comparing against a specific ID.
     for (int i = 0; i < 3; i++) {
       can1.setMB(mb, RX);         // standard
-      can1.setMBFilter(mb, 0x000); // match any ID
+      can1.setMBFilter(mb, ACCEPT_ALL);
       mb++;
     }
 
@@ -146,22 +151,41 @@ bool setupCAN()
     can1.setClock(CLK_60MHz);
     //can1.mailboxStatus(); // for checking individual mailbox status
 
-    // TODO: the startup doesn't work if I set CAN2 and CAN3 with manual mailbox assignment similar to CAN1
+    // RESOLVED: manual mailbox assignment on CAN2/CAN3 previously appeared
+    // not to work — the actual cause was using setMBFilter(mb, 0x000) as a
+    // "wildcard", which is really an exact-match filter for ID 0x000 only
+    // (see the comment on CAN1's fallback mailboxes above), so nothing
+    // real ever matched. distribute() alone (no setMB()/setMBFilter() at
+    // all) isn't a real fix either — it's documented as a supplement to
+    // mailbox filters you've already configured, not a substitute for
+    // configuring them; without that, mailboxes are left in whatever state
+    // they happen to already be in, which is why this pattern was also the
+    // confirmed root cause of a reset-time full lockup in the production
+    // firmware (see teensy/teensy.ino's setupCAN()). Fixed the same way:
+    // explicit setMB()/setMBFilter(ACCEPT_ALL) mailboxes.
     can2.begin();
     can2.setBaudRate(CAN_BAUDRATE);
-    can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    can2.setMaxMB(20);
+    {
+        int mb2 = 0;
+        for (int i = 0; i < 15; i++) { can2.setMB(mb2, RX); can2.setMBFilter(mb2, ACCEPT_ALL); mb2++; }
+        for (int i = 0; i < 5; i++) { can2.setMB(mb2, TX); mb2++; }
+    }
     can2.enableMBInterrupts();
     can2.onReceive(onCanMessage2);
-    can2.distribute();
     can2.setClock(CLK_60MHz);
     //can2.mailboxStatus();
 
     can3.begin();
     can3.setBaudRate(CAN_BAUDRATE);
-    can3.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    can3.setMaxMB(20);
+    {
+        int mb3 = 0;
+        for (int i = 0; i < 15; i++) { can3.setMB(mb3, RX); can3.setMBFilter(mb3, ACCEPT_ALL); mb3++; }
+        for (int i = 0; i < 5; i++) { can3.setMB(mb3, TX); mb3++; }
+    }
     can3.enableMBInterrupts();
     can3.onReceive(onCanMessage3);
-    can3.distribute();
     can3.setClock(CLK_60MHz);
     //can3.mailboxStatus();
     

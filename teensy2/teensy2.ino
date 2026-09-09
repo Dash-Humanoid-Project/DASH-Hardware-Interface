@@ -291,7 +291,21 @@ bool setupCAN()
     //   node 6 heartbeat (cmd 0x01): 6*32+1 = 0x0C1
     //   node 5 cmd 0x05: 5*32+5 = 0x0A5
     //   node 6 cmd 0x05: 6*32+5 = 0x0C5
+    // setClock() is NOT per-bus: the IMXRT1062 has one shared CAN
+    // clock-select register, and FlexCAN_T4's setClock() silently
+    // re-invokes setBaudRate() on every already-constructed CAN1/CAN2
+    // instance as a side effect. Calling it once per bus after that bus was
+    // already fully live with real ODrive CAN traffic re-triggers baud-rate
+    // reconfiguration on an already-active, actively-receiving bus — this
+    // is what caused a real hang on the left leg's Teensy 1 whenever the
+    // ODrives were powered (found via instrumented Serial tracing). Fix:
+    // begin() both buses first, set the shared clock exactly once while
+    // nothing is receiving yet, then configure each bus — no bus's
+    // setClock() is called again afterward.
     can1.begin();
+    can2.begin();
+    can1.setClock(CLK_60MHz);
+
     can1.setBaudRate(CAN_BAUDRATE);
     can1.setMaxMB(20);
 
@@ -309,24 +323,60 @@ bool setupCAN()
         can1.setMB(mb, RX); can1.setMBFilter(mb, lowFreqIDs[i]); mb++;
     }
 
-    // Wildcard fallback mailboxes
+    // Wildcard fallback mailboxes. setMBFilter(mb, id) is an EXACT-match
+    // filter regardless of id value (its mask always computes to "match
+    // all bits") — 0x000 here was never a real wildcard, just a filter for
+    // ID 0x000 specifically. Harmless on CAN1 since the specific ID
+    // mailboxes above do the real work, but not actually a fallback for
+    // anything else — using the real ACCEPT_ALL mechanism instead.
     for (int i = 0; i < 4; i++) {
-        can1.setMB(mb, RX); can1.setMBFilter(mb, 0x000); mb++;
+        can1.setMB(mb, RX); can1.setMBFilter(mb, ACCEPT_ALL); mb++;
     }
     for (int i = 0; i < 8; i++) { can1.setMB(mb, TX); mb++; }
 
     can1.enableMBInterrupts();
     can1.onReceive(onCanMessage1);
-    can1.setClock(CLK_60MHz);
+    // FlexCAN_T4 dispatches incoming frames directly from the ISR until
+    // events() is called for the first time on this bus (isEventsUsed
+    // flag) — after that, frames are safely queued for our own foreground
+    // pumpEvents() calls instead. ODrives keep transmitting at their
+    // previously-configured rate across a Teensy-only reset, so real
+    // traffic can arrive the instant interrupts are enabled. Any
+    // Serial.print reachable from a mailbox callback (onFeedback's
+    // first-10 debug print, onHeartbeat's error-change print) running from
+    // inside that ISR is a real deadlock risk (Serial.print can block on
+    // USB buffer space that only frees via the USB interrupt). Flip
+    // isEventsUsed here, immediately, before that can happen.
+    can1.events();
 
-    // CAN2: auto-distribute for right-leg node IDs 6–7
-    can2.begin();
+    // CAN2: right-leg node IDs 6-7. Previously used distribute() alone,
+    // with no setMB()/setMBFilter() calls at all — distribute() is
+    // documented (FlexCAN_T4 README) as a supplement to mailbox filters
+    // you've already configured (letting one frame notify multiple
+    // matching mailboxes), not a substitute for configuring them. Without
+    // that setup, every mailbox was left in whatever state it happened to
+    // already be in — fine on a fresh flash (closer to a true power-on
+    // reset), but not necessarily on a warm reset, which doesn't
+    // necessarily clear FlexCAN's mailbox RAM the same way. Explicit
+    // wildcard mailbox assignment (matching CAN1's pattern above) forces a
+    // deterministic, known state on every boot regardless of what was left
+    // over. See teensy/teensy.ino's setupCAN() for the confirmed fix and
+    // full writeup — this is the same bug in the same pattern.
     can2.setBaudRate(CAN_BAUDRATE);
-    can2.setMaxMB(NUM_TX_MAILBOXES + NUM_RX_MAILBOXES);
+    can2.setMaxMB(20);
+    {
+        int mb2 = 0;
+        // ACCEPT_ALL (not a numeric id) is the real wildcard mechanism —
+        // setMBFilter(mb, id) is an exact-match filter regardless of id.
+        for (int i = 0; i < 15; i++) { can2.setMB(mb2, RX); can2.setMBFilter(mb2, ACCEPT_ALL); mb2++; }
+        for (int i = 0; i < 5; i++) { can2.setMB(mb2, TX); mb2++; }
+    }
     can2.enableMBInterrupts();
     can2.onReceive(onCanMessage2);
-    can2.distribute();
-    can2.setClock(CLK_60MHz);
+    // events() must be the *very next* statement after onReceive() — no
+    // other call in between, or the ISR-dispatch window this is meant to
+    // close (see CAN1's comment above) reopens.
+    can2.events();
 
     return true;
 }
