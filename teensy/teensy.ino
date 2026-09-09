@@ -203,121 +203,15 @@ void onCanMessage3(const CanMsg& msg) {
 
 // ===== Setup =====
 
-// Breadcrumb trail for diagnosing the reset-time CAN lockup: this is a
-// genuine full CPU lockup with no caught fault (confirmed via an
-// independent hardware-timer test — nothing, not even unrelated
-// interrupts, fires during it), so CrashReport's own fault record is never
-// valid and CrashReportClass::printTo() prints nothing at all, breadcrumbs
-// included (it gates the whole report, breadcrumbs and all, on
-// isvalid(fault_info)). CrashReport.breadcrumb() itself writes to a
-// separate fixed memory address (0x2027FFC0) that survives a normal reset
-// regardless of whether a fault was ever recorded, so we read that address
-// directly here, bypassing CrashReport's gating, to see the last step
-// reached before a lockup — no interrupt or live debugger required, since
-// the write already happened before the freeze; we just have to read it
-// back on the next boot.
-// Matches crashreport_breadcrumbs_struct in imxrt.h exactly — bitmask
-// comes FIRST, not last (an earlier version of this had it wrong, which
-// is why the first few reads of this looked like garbage: it was reading
-// the real bitmask as if it were value[0], and real value[5] as if it
-// were the bitmask).
-struct BreadcrumbRaw { uint32_t bitmask; uint32_t value[6]; uint32_t checksum; };
-
-const char* breadcrumbStepName(uint32_t step) {
-    switch (step) {
-        case 10: return "can1/2/3.begin() done";
-        case 11: return "NVIC disabled for begin/config phase";
-        case 12: return "can1.setClock() done";
-        case 13: return "can1.setBaudRate/setMaxMB done";
-        case 14: return "can1 mailbox loop done";
-        case 15: return "CAN1 fully done (enableMBInterrupts/onReceive/events)";
-        case 16: return "can2.setBaudRate/setMaxMB done";
-        case 17: return "CAN2 fully done (enableMBInterrupts/onReceive/events/distribute)";
-        case 18: return "can3.setBaudRate/setMaxMB done";
-        case 19: return "CAN3 fully done (enableMBInterrupts/onReceive/events/distribute)";
-        case 20: return "NVIC re-enabled, setupCAN() returning";
-        case 30: return "endpoint config: starting odrv[ctx]";
-        case 31: return "endpoint config: odrv[ctx] done";
-        case 32: return "endpoint config loop fully done";
-        case 33: return "settling delay starting";
-        case 34: return "settling delay done";
-        case 35: return "discovery loop starting";
-        case 36: return "discovery loop fully done";
-        case 37: return "ramp-up loop: odrv[ctx]";
-        case 38: return "ramp-up loop done";
-        case 39: return "setup() fully complete";
-        default: return "(none / unrecognized)";
-    }
-}
-
-inline void breadcrumb(uint32_t step, uint32_t ctx = 0) {
-    CrashReport.breadcrumb(1, step);
-    CrashReport.breadcrumb(2, ctx);
-}
-
 void setup()
 {
     Serial.begin(115200);
     for (int i = 0; i < 30 && !Serial; ++i) { delay(100); }
     delay(200);
 
-    // Read the breadcrumb trail from whatever happened on the PREVIOUS
-    // boot — printed unconditionally, independent of CrashReport's own
-    // fault-gated report, so this shows up even when nothing else does.
-    {
-        volatile BreadcrumbRaw* bc = (volatile BreadcrumbRaw*)0x2027FFC0;
-        // This region is cacheable (MEM_CACHE_WBWA per startup.c's MPU
-        // setup) — invalidate before reading so this actually pulls fresh
-        // content from RAM instead of a stale cache line.
-        arm_dcache_delete((void*)bc, sizeof(BreadcrumbRaw));
-        Serial.print("[BREADCRUMB] last step from previous boot: ");
-        Serial.print(bc->value[0]);
-        Serial.print(" (");
-        Serial.print(breadcrumbStepName(bc->value[0]));
-        Serial.print(") ctx=");
-        Serial.print(bc->value[1]);
-        Serial.print(" bitmask=0x");
-        Serial.println(bc->bitmask, HEX);
-        // Discovery-loop fine-grained trail (see the per-iteration
-        // breadcrumb calls in the discovery loop below): only meaningful
-        // if step==35/36 above, i.e. the freeze happened during discovery.
-        // ctx above is the odrv index the loop was actively waiting on;
-        // these are ALL THREE buses' ESR1 at that same last iteration,
-        // regardless of which one was being waited on.
-        Serial.print("[BREADCRUMB] discovery detail: iter=");
-        Serial.print(bc->value[2]);
-        Serial.print(" last CAN1_ESR1=0x");
-        Serial.print(bc->value[3], HEX);
-        Serial.print(" last CAN2_ESR1=0x");
-        Serial.print(bc->value[4], HEX);
-        Serial.print(" last CAN3_ESR1=0x");
-        Serial.println(bc->value[5], HEX);
-        Serial.flush();
-    }
-    breadcrumb(0); // fresh boot, not yet started
-
-    // TEMP DIAGNOSTIC: same-boot round-trip sanity check — write a
-    // distinctive marker, then immediately read it back (own cache
-    // invalidated too), with no reset involved at all. Isolates whether
-    // breadcrumb() itself works, independent of whether data survives a
-    // reset.
-    {
-        breadcrumb(777, 888);
-        volatile BreadcrumbRaw* bc2 = (volatile BreadcrumbRaw*)0x2027FFC0;
-        arm_dcache_delete((void*)bc2, sizeof(BreadcrumbRaw));
-        Serial.print("[BREADCRUMB SELFTEST] wrote 777/888, read back value[0]=");
-        Serial.print(bc2->value[0]);
-        Serial.print(" value[1]=");
-        Serial.print(bc2->value[1]);
-        Serial.print(" bitmask=0x");
-        Serial.println(bc2->bitmask, HEX);
-        Serial.flush();
-    }
-
-    // The board has been observed to crash and auto-reboot on its own (not
-    // just hang) somewhere in CAN/ODrive setup, only when ODrives are
-    // already live. CrashReport (Teensy 4 core feature) survives a reset
-    // and reports the fault that caused it, if any.
+    // CrashReport (Teensy 4 core feature) survives a reset and reports the
+    // fault that caused it, if any — prints nothing when the prior boot
+    // exited cleanly.
     if (CrashReport) {
         Serial.print(CrashReport);
         Serial.println();
@@ -368,20 +262,16 @@ void setup()
         odrives[i]->onStatus(onHeartbeat, odrives_data[i]);
     }
 
-    Serial.println("[CANDBG] calling setupCAN()"); Serial.flush();
     if (!setupCAN()) {
         Serial.println("CAN failed to initialize: reset required");
         while (true);
     }
-    Serial.println("[CANDBG] setupCAN() returned, starting endpoint config"); Serial.flush();
 
     // Configure ODrive message rates — skip silently if ODrive doesn't respond.
     // Encoder rate starts at a SAFE, slow startup rate here, not the real
     // operating rate — see the ramp-up after discovery below for why.
     for (size_t odrv_idx = 0; odrv_idx < num_odrives; ++odrv_idx) {
         auto odrive = odrives[odrv_idx];
-        breadcrumb(30, odrv_idx);
-        Serial.print("[CANDBG] odrv"); Serial.print(odrv_idx); Serial.println(" endpoint config start"); Serial.flush();
         uint32_t t;
         t = millis(); while (!odrive->setEndpoint(274, HEARTBEAT_MSG_RATE_MS) && millis()-t < 500) { delay(10); }
         t = millis(); while (!odrive->setEndpoint(275, ENCODER_MSG_RATE_MS_SAFE_STARTUP) && millis()-t < 500) { delay(10); }
@@ -390,60 +280,21 @@ void setup()
         t = millis(); while (!odrive->setEndpoint(278, 0) && millis()-t < 200) { delay(10); }
         t = millis(); while (!odrive->setEndpoint(279, 0) && millis()-t < 200) { delay(10); }
         t = millis(); while (!odrive->setEndpoint(280, 0) && millis()-t < 200) { delay(10); }
-        breadcrumb(31, odrv_idx);
-        Serial.print("[CANDBG] odrv"); Serial.print(odrv_idx); Serial.println(" endpoint config done"); Serial.flush();
     }
-    breadcrumb(32);
-    Serial.println("[CANDBG] endpoint config loop done"); Serial.flush();
 
     // setEndpoint() is fire-and-forget (doesn't confirm the ODrive actually
     // applied it) — the ODrive keeps streaming at whatever rate it had
     // *before* this request (persisted from the prior session) until it
     // actually processes the new one. Combined with the reduced startup
     // rate above: give that transition real time to happen before
-    // discovery starts, rather than assuming it's instant. CAN1/2/3 NVIC
-    // interrupts are already enabled at this point (see setupCAN()), so
-    // mailboxes keep draining normally through this delay instead of
-    // backlogging.
-    breadcrumb(33);
-    Serial.println("[CANDBG] settling delay for rate transition"); Serial.flush();
+    // discovery starts, rather than assuming it's instant.
     delay(500);
-    breadcrumb(34);
-    Serial.println("[CANDBG] settling delay done"); Serial.flush();
 
-    breadcrumb(35);
     Serial.print("Found ODrives: ");
     for (size_t i = 0; i < num_odrives; ++i) {
         // Wait with a 5s timeout rather than spinning forever on a missing ODrive
         uint32_t deadline = millis() + 5000;
-        static const uint32_t kCanBase[3] = {0x401D0000, 0x401D4000, 0x401D8000};
-        uint32_t iterCount = 0;
         while (!odrives_data[i]->received_heartbeat && millis() < deadline) {
-            // Capture ALL THREE buses' ESR1 every iteration, not just
-            // whichever odrv/bus this particular wait loop happens to be
-            // on — a prior capture only ever showed CAN1 because the
-            // freeze happened before the loop's index reached CAN2/CAN3's
-            // nodes at all, which was a gap in coverage, not evidence
-            // CAN2/CAN3 were clean. Only 6 breadcrumb slots exist total,
-            // so this uses all of them: step/ctx from the loop below are
-            // NOT overwritten here (this only touches slots 2-6).
-            uint32_t esr1_can1 = *(volatile uint32_t*)(kCanBase[0] + 0x20);
-            uint32_t esr1_can2 = *(volatile uint32_t*)(kCanBase[1] + 0x20);
-            uint32_t esr1_can3 = *(volatile uint32_t*)(kCanBase[2] + 0x20);
-            CrashReport.breadcrumb(2, i);
-            CrashReport.breadcrumb(3, iterCount);
-            CrashReport.breadcrumb(4, esr1_can1);
-            CrashReport.breadcrumb(5, esr1_can2);
-            CrashReport.breadcrumb(6, esr1_can3);
-            if ((iterCount % 100) == 0) {
-                Serial.print("[CANERR] odrv"); Serial.print(i);
-                Serial.print(" bus="); Serial.print(odrives_data[i]->bus_idx_);
-                Serial.print(" CAN1_ESR1=0x"); Serial.print(esr1_can1, HEX);
-                Serial.print(" CAN2_ESR1=0x"); Serial.print(esr1_can2, HEX);
-                Serial.print(" CAN3_ESR1=0x"); Serial.println(esr1_can3, HEX);
-                Serial.flush();
-            }
-            iterCount++;
             pumpEvents(*odrives_data[i]->can_ptr_);
             delay(1);
         }
@@ -454,28 +305,22 @@ void setup()
         }
     }
     Serial.println("");
-    breadcrumb(36);
 
     // Discovery is done — ramp encoder feedback up to the real operating
     // rate now. This is the only place ENCODER_MSG_RATE_MS (not the safe
     // startup rate) ever gets sent, so 500Hz is never active during the
     // vulnerable discovery window, only afterward.
-    Serial.println("[CANDBG] ramping encoder rate up to operating speed"); Serial.flush();
     for (size_t i = 0; i < num_odrives; ++i) {
         auto odrive = odrives[i];
-        breadcrumb(37, i);
         uint32_t t = millis();
         while (!odrive->setEndpoint(275, ENCODER_MSG_RATE_MS) && millis()-t < 500) { delay(10); }
     }
-    breadcrumb(38);
-    Serial.println("[CANDBG] encoder rate ramp-up done"); Serial.flush();
 
     Serial.println("ODrives found. Ready for commands.");
     Serial.println("Run './closed_loop_test --start' on PC to enable closed-loop control.");
 
     pinMode(LED_BUILTIN, OUTPUT);
     Serial.println("PC<UDP>Teensy<CAN>ODrivePro setup is complete.");
-    breadcrumb(39);
 }
 
 bool setupEthernetWithStaticIP()
@@ -515,11 +360,9 @@ bool setupCAN()
     // begin() all three buses first, set the shared clock exactly once while
     // nothing is receiving yet, then configure each bus's baud rate/mailboxes
     // /interrupts — no bus's setClock() is called again afterward.
-    Serial.println("[CANDBG] can1/2/3.begin()"); Serial.flush();
     can1.begin();
     can2.begin();
     can3.begin();
-    breadcrumb(10);
 
     // Hold CAN1/2/3 interrupts off at the NVIC level only while begin()/
     // setClock()/mailbox setup are actually in progress on each bus — this
@@ -537,22 +380,14 @@ bool setupCAN()
     NVIC_DISABLE_IRQ(IRQ_CAN1);
     NVIC_DISABLE_IRQ(IRQ_CAN2);
     NVIC_DISABLE_IRQ(IRQ_CAN3);
-    breadcrumb(11);
 
-    Serial.println("[CANDBG] can1.setClock() (shared, once)"); Serial.flush();
     can1.setClock(CLK_60MHz);
-    Serial.println("[CANDBG] shared clock set"); Serial.flush();
-    breadcrumb(12);
 
     // CAN1: manual mailbox assignment for left-leg node IDs 0-1
-    Serial.println("[CANDBG] can1.setBaudRate()"); Serial.flush();
     can1.setBaudRate(CAN_BAUDRATE);
-    Serial.println("[CANDBG] can1.setMaxMB()"); Serial.flush();
     can1.setMaxMB(20);
-    breadcrumb(13);
 
     // High-frequency IDs — 2 mailboxes each for buffering
-    Serial.println("[CANDBG] can1 mailbox setup"); Serial.flush();
     uint16_t highFreqIDs[] = { 0x009, 0x029, 0x049 };
     int mb = 0;
     for (int i = 0; i < 3; i++) {
@@ -576,11 +411,8 @@ bool setupCAN()
         can1.setMB(mb, RX); can1.setMBFilter(mb, ACCEPT_ALL); mb++;
     }
     for (int i = 0; i < 5; i++) { can1.setMB(mb, TX); mb++; }
-    breadcrumb(14);
 
-    Serial.println("[CANDBG] can1.enableMBInterrupts()"); Serial.flush();
     can1.enableMBInterrupts();
-    Serial.println("[CANDBG] can1.onReceive()"); Serial.flush();
     can1.onReceive(onCanMessage1);
     // FlexCAN_T4 dispatches incoming frames directly from the ISR until
     // events() is called for the first time on this bus (isEventsUsed flag)
@@ -595,86 +427,50 @@ bool setupCAN()
     // buffer space that only frees via the USB interrupt). Flip
     // isEventsUsed here, immediately, before that can happen.
     can1.events();
-    breadcrumb(15);
-    Serial.println("[CANDBG] CAN1 done"); Serial.flush();
 
-    // CAN2: left-leg node IDs 2-3 (l_hip_pitch, l_knee). Previously used
-    // distribute() alone, with no setMB()/setMBFilter() calls at all —
-    // CONFIRMED root cause of the reset-time lockup investigated at length
-    // this session. distribute() is documented (FlexCAN_T4 README) as a
-    // supplement to mailbox filters you've already configured (letting one
-    // frame notify multiple matching mailboxes), not a substitute for
-    // configuring them. Without that setup, every mailbox was left in
-    // whatever state it happened to already be in — fine on a fresh flash
-    // (closer to a true power-on reset), but not on a warm reset, which
-    // doesn't necessarily clear FlexCAN's mailbox RAM the same way.
-    // Explicit wildcard mailbox assignment (matching CAN1's pattern above)
-    // forces a deterministic, known state on every boot regardless of what
-    // was left over — confirmed fixed via isolated CAN2-only testing.
-    Serial.println("[CANDBG] can2.setBaudRate()"); Serial.flush();
+    // CAN2: left-leg node IDs 2-3 (l_hip_pitch, l_knee). Every mailbox is
+    // explicitly assigned a mode and filter here — a prior version relied
+    // on distribute() alone with no setMB()/setMBFilter() calls at all,
+    // which left mailboxes in whatever state they already happened to be
+    // in (distribute() is a supplement to mailbox filters you've already
+    // configured, not a substitute for configuring them) and was the
+    // confirmed root cause of a reset-time CAN lockup.
     can2.setBaudRate(CAN_BAUDRATE);
-    Serial.println("[CANDBG] can2.setMaxMB()"); Serial.flush();
     can2.setMaxMB(20);
-    breadcrumb(16);
-
-    Serial.println("[CANDBG] can2 manual mailbox setup"); Serial.flush();
     {
         int mb2 = 0;
-        // setMBFilter(mb, id) is an EXACT-match filter (its mask always
-        // computes to "match all bits", regardless of id) — it is NOT a
-        // wildcard despite id=0x000 looking like one. The real accept-all
-        // mechanism is the ACCEPT_ALL overload below, which zeroes the
-        // hardware mask register (RXIMR) so no ID bits are compared at all.
         for (int i = 0; i < 15; i++) { can2.setMB(mb2, RX); can2.setMBFilter(mb2, ACCEPT_ALL); mb2++; }
         for (int i = 0; i < 5; i++) { can2.setMB(mb2, TX); mb2++; }
     }
 
-    Serial.println("[CANDBG] can2.enableMBInterrupts()"); Serial.flush();
     can2.enableMBInterrupts();
-    Serial.println("[CANDBG] can2.onReceive()"); Serial.flush();
     can2.onReceive(onCanMessage2);
     // events() must be the *very next* statement after onReceive() — no
     // Serial print/flush (can take real time waiting on USB) and no other
     // call in between, or the ISR-dispatch window this is meant to close
     // (see CAN1's comment above) just reopens here instead.
     can2.events();
-    breadcrumb(17);
-    Serial.println("[CANDBG] CAN2 done"); Serial.flush();
 
-    // CAN3: l_ankle (node 4). Same distribute()-without-setMB() bug as
-    // CAN2 above — same fix.
-    Serial.println("[CANDBG] can3.setBaudRate()"); Serial.flush();
+    // CAN3: l_ankle (node 4). Same fix as CAN2 above.
     can3.setBaudRate(CAN_BAUDRATE);
-    Serial.println("[CANDBG] can3.setMaxMB()"); Serial.flush();
     can3.setMaxMB(20);
-    breadcrumb(18);
-
-    Serial.println("[CANDBG] can3 manual mailbox setup"); Serial.flush();
     {
         int mb3 = 0;
         for (int i = 0; i < 15; i++) { can3.setMB(mb3, RX); can3.setMBFilter(mb3, ACCEPT_ALL); mb3++; }
         for (int i = 0; i < 5; i++) { can3.setMB(mb3, TX); mb3++; }
     }
 
-    Serial.println("[CANDBG] can3.enableMBInterrupts()"); Serial.flush();
     can3.enableMBInterrupts();
-    Serial.println("[CANDBG] can3.onReceive()"); Serial.flush();
     can3.onReceive(onCanMessage3);
     // events() must be the *very next* statement after onReceive() — see
     // the comment on CAN2's events() call above.
     can3.events();
-    breadcrumb(19);
-    Serial.println("[CANDBG] CAN3 done"); Serial.flush();
 
     // Re-enable NVIC interrupts now, before the endpoint-config loop and
     // settling delay in setup() run.
-    Serial.println("[CANDBG] enabling CAN1/2/3 NVIC interrupts"); Serial.flush();
     NVIC_ENABLE_IRQ(IRQ_CAN1);
     NVIC_ENABLE_IRQ(IRQ_CAN2);
     NVIC_ENABLE_IRQ(IRQ_CAN3);
-    breadcrumb(20);
-
-    Serial.println("[CANDBG] setupCAN() returning"); Serial.flush();
 
     return true;
 }
