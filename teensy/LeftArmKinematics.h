@@ -25,46 +25,19 @@
 
 namespace LeftArm {
 
+// Vec3/Mat4 and the generic transform builders/Jacobian math all live in
+// LimbKin now (shared with RightArmKinematics.h etc.) - aliased back in so
+// every existing LeftArm::Vec3/LeftArm::translation/... call site keeps
+// compiling unchanged. Only forwardKinematics() below (this limb's own URDF
+// chain) and the computeJacobian() wrapper actually need to live here.
 using LimbKin::Mat4;
 using LimbKin::Vec3;
-
-inline Mat4 translation(double x, double y, double z) {
-    Mat4 T = Mat4::identity();
-    T.m[0][3] = x;
-    T.m[1][3] = y;
-    T.m[2][3] = z;
-    return T;
-}
-
-inline Mat4 rotX(double a) {
-    Mat4 R = Mat4::identity();
-    double c = cos(a), s = sin(a);
-    R.m[1][1] = c;  R.m[1][2] = -s;
-    R.m[2][1] = s;  R.m[2][2] = c;
-    return R;
-}
-
-inline Mat4 rotY(double a) {
-    Mat4 R = Mat4::identity();
-    double c = cos(a), s = sin(a);
-    R.m[0][0] = c;  R.m[0][2] = s;
-    R.m[2][0] = -s; R.m[2][2] = c;
-    return R;
-}
-
-inline Mat4 rotZ(double a) {
-    Mat4 R = Mat4::identity();
-    double c = cos(a), s = sin(a);
-    R.m[0][0] = c;  R.m[0][1] = -s;
-    R.m[1][0] = s;  R.m[1][1] = c;
-    return R;
-}
-
-// URDF rpy convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)
-// The rpy attribute is ordered as "roll pitch yaw"
-inline Mat4 rotRPY(double roll, double pitch, double yaw) {
-    return rotZ(yaw) * rotY(pitch) * rotX(roll);
-}
+using LimbKin::translation;
+using LimbKin::rotX;
+using LimbKin::rotY;
+using LimbKin::rotZ;
+using LimbKin::rotRPY;
+using LimbKin::jacobianTransposeMultiply;
 
 // Forward kinematics: joint angles (radians) -> elbow-frame position in torso frame (meters)
 // q[0] = shoulder_pitch, q[1] = shoulder_roll, q[2] = shoulder_yaw, q[3] = elbow
@@ -93,34 +66,12 @@ inline Vec3 forwardKinematics(const double q[4]) {
     return {T.m[0][3], T.m[1][3], T.m[2][3]};
 }
 
-// Numerical Jacobian (3x4) via central finite differences
-// Maps joint velocities (rad/s) to end-effector velocity (m/s)
+// Binds LimbKin's generic central-difference Jacobian to this limb's own
+// forwardKinematics - kept as a thin per-limb wrapper (rather than shared
+// outright) because LimbKinematics::computeJacobian's function-pointer
+// field has a fixed (q, J) signature with no room for an fk parameter.
 inline void computeJacobian(const double q[4], double J[3][4]) {
-    const double dq = 1e-6;
-
-    for (int i = 0; i < 4; i++) {
-        double q_plus[4]  = {q[0], q[1], q[2], q[3]};
-        double q_minus[4] = {q[0], q[1], q[2], q[3]};
-        q_plus[i]  += dq;
-        q_minus[i] -= dq;
-
-        Vec3 p_plus  = forwardKinematics(q_plus);
-        Vec3 p_minus = forwardKinematics(q_minus);
-
-        J[0][i] = (p_plus.x - p_minus.x) / (2.0 * dq);
-        J[1][i] = (p_plus.y - p_minus.y) / (2.0 * dq);
-        J[2][i] = (p_plus.z - p_minus.z) / (2.0 * dq);
-    }
-}
-
-// tau = J^T * F  (4x1 = 4x3 * 3x1)
-inline void jacobianTransposeMultiply(const double J[3][4], const double F[3], double tau[4]) {
-    for (int i = 0; i < 4; i++) {
-        tau[i] = 0;
-        for (int j = 0; j < 3; j++) {
-            tau[i] += J[j][i] * F[j];
-        }
-    }
+    LimbKin::computeJacobian(&forwardKinematics, q, J);
 }
 
 // The kinematics-injection seam LegController binds to at construction -

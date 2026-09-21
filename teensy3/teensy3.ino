@@ -557,7 +557,7 @@ void parseAndProcessUDPPacket()
             uint8_t num_motors = data[1];
             size_t payload_size = sizeof(uint8_t)
                 + num_motors * sizeof(Input_Vel_TYPE)
-                + sizeof(Input_Torque_FF_TYPE);
+                + num_motors * sizeof(Input_Torque_FF_TYPE);
 
             uint8_t received_crc   = data[1 + payload_size];
             uint8_t calculated_crc = calculate_crc8(data, 1 + payload_size);
@@ -576,7 +576,7 @@ void parseAndProcessUDPPacket()
                 cmd.Input_Vel[i] = clampf(cmd.Input_Vel[i], -vel_max_turns_s[i], vel_max_turns_s[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
-                odrives[i]->setVelocity(cmd.Input_Vel[i], cmd.Input_Torque_FF);
+                odrives[i]->setVelocity(cmd.Input_Vel[i], cmd.Input_Torque_FF[i]);
             break;
         }
 

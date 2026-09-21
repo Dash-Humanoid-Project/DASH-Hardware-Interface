@@ -116,18 +116,23 @@ struct PositionCommand : public CommandBase {
 
 struct VelocityCommand : public CommandBase {
     std::vector<Input_Vel_TYPE> Input_Vel;
-    Input_Torque_FF_TYPE Input_Torque_FF;
+    std::vector<Input_Torque_FF_TYPE> Input_Torque_FF;  // per-motor torque feedforward
 
-    // Custom constructor
-    VelocityCommand(std::vector<Input_Vel_TYPE> v, Input_Torque_FF_TYPE t = 0)
-        : Input_Vel(v), Input_Torque_FF(t) {}
+    // Custom constructor with per-motor torque feedforward
+    VelocityCommand(std::vector<Input_Vel_TYPE> v, std::vector<Input_Torque_FF_TYPE> t = {})
+        : Input_Vel(v), Input_Torque_FF(t) {
+        // If Torque_FF is empty, resize to match Input_Vel size with zeros
+        if (Input_Torque_FF.empty() && !Input_Vel.empty()) {
+            Input_Torque_FF.resize(Input_Vel.size(), 0);
+        }
+    }
 
     // Default constructor (needed for deserialize)
     VelocityCommand() = default;
 
     size_t dataSize() const override {
         size_t num_motors = Input_Vel.empty() ? 0 : Input_Vel.size();
-        return sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE) + sizeof(Input_Torque_FF_TYPE);
+        return sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE) + num_motors * sizeof(Input_Torque_FF_TYPE);
     }
 
     MsgType getType() const override {
@@ -137,19 +142,23 @@ struct VelocityCommand : public CommandBase {
     void writeToBuffer(uint8_t* buffer) const override {
         uint8_t num_motors = Input_Vel.size();
         std::memcpy(buffer, &num_motors, sizeof(uint8_t));
-        std::memcpy(buffer + sizeof(uint8_t), Input_Vel.data(), num_motors * sizeof(Input_Vel_TYPE));
-        std::memcpy(buffer + sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE), &Input_Torque_FF, sizeof(Input_Torque_FF_TYPE));
+        size_t vel_size = Input_Vel.size() * sizeof(Input_Vel_TYPE);
+        std::memcpy(buffer + sizeof(uint8_t), Input_Vel.data(), vel_size);
+        size_t torque_ff_size = Input_Torque_FF.size() * sizeof(Input_Torque_FF_TYPE);
+        std::memcpy(buffer + sizeof(uint8_t) + vel_size, Input_Torque_FF.data(), torque_ff_size);
     }
 
     void readFromBuffer(const uint8_t* buffer) override {
         uint8_t num_motors;
         std::memcpy(&num_motors, buffer, sizeof(uint8_t));
         Input_Vel.resize(num_motors);
-        std::memcpy(Input_Vel.data(), buffer + sizeof(uint8_t), num_motors * sizeof(Input_Vel_TYPE));
-        std::memcpy(&Input_Torque_FF, buffer + sizeof(uint8_t) + num_motors * sizeof(Input_Vel_TYPE), sizeof(Input_Torque_FF_TYPE));
+        Input_Torque_FF.resize(num_motors);
+        size_t vel_size = Input_Vel.size() * sizeof(Input_Vel_TYPE);
+        std::memcpy(Input_Vel.data(), buffer + sizeof(uint8_t), vel_size);
+        std::memcpy(Input_Torque_FF.data(), buffer + sizeof(uint8_t) + vel_size, num_motors * sizeof(Input_Torque_FF_TYPE));
     }
 
-    std::tuple<std::vector<Input_Vel_TYPE>, Input_Torque_FF_TYPE> getCommandValue() {
+    std::tuple<std::vector<Input_Vel_TYPE>, std::vector<Input_Torque_FF_TYPE>> getCommandValue() {
         return { Input_Vel, Input_Torque_FF };
     }
 
@@ -159,7 +168,12 @@ struct VelocityCommand : public CommandBase {
             std::cout << Input_Vel[i];
             if (i < Input_Vel.size() - 1) std::cout << ", ";
         }
-        std::cout << "] | Torque_FF: " << Input_Torque_FF << std::endl;
+        std::cout << "] | Torque_FF: [";
+        for (size_t i = 0; i < Input_Torque_FF.size(); ++i) {
+            std::cout << Input_Torque_FF[i];
+            if (i < Input_Torque_FF.size() - 1) std::cout << ", ";
+        }
+        std::cout << "]" << std::endl;
     }
 };
 

@@ -107,10 +107,12 @@ void Leg::setPositions(const std::map<std::string, float>& positions_rad,
     teensy_.setPositionCommand(std::make_shared<PositionCommand>(pos, vel, tau_ff));
 }
 
-void Leg::setVelocities(const std::map<std::string, float>& velocities_rad_s)
+void Leg::setVelocities(const std::map<std::string, float>& velocities_rad_s,
+                        const std::map<std::string, float>& torque_ff_nm)
 {
     const int n = static_cast<int>(motors_.size());
     std::vector<Input_Vel_TYPE> vel(n, 0.0f);
+    std::vector<Input_Torque_FF_TYPE> tau_ff(n, 0.0f);
 
     for (int i = 0; i < n; ++i) {
         const auto& m = motors_[i];
@@ -124,9 +126,20 @@ void Leg::setVelocities(const std::map<std::string, float>& velocities_rad_s)
                           << " rad/s (limit +/-" << m.vel_max_rad_s << ")\n";
             vel[i] = static_cast<Input_Vel_TYPE>(qd_clamped * m.turns_per_rad);
         }
+
+        auto tit = torque_ff_nm.find(m.joint_name);
+        if (tit != torque_ff_nm.end()) {
+            float t = tit->second;
+            float t_clamped = clampf(t, -m.tau_max_nm, m.tau_max_nm);
+            if (t_clamped != t)
+                std::cerr << "[Leg] CLAMPED torque_ff: " << m.joint_name
+                          << " requested=" << t << " Nm, applied=" << t_clamped
+                          << " Nm (limit +/-" << m.tau_max_nm << ")\n";
+            tau_ff[i] = static_cast<Input_Torque_FF_TYPE>(t_clamped / gearRatio(m));
+        }
     }
 
-    teensy_.setVelocityCommand(std::make_shared<VelocityCommand>(vel));
+    teensy_.setVelocityCommand(std::make_shared<VelocityCommand>(vel, tau_ff));
 }
 
 void Leg::setTorques(const std::map<std::string, float>& torques_nm)

@@ -32,7 +32,8 @@ public:
     void setPositions(const std::map<std::string, float>& positions_rad,
                       const std::map<std::string, float>& vel_ff_rad_s = {},
                       const std::map<std::string, float>& torque_ff_nm = {});
-    void setVelocities(const std::map<std::string, float>& velocities_rad_s);
+    void setVelocities(const std::map<std::string, float>& velocities_rad_s,
+                       const std::map<std::string, float>& torque_ff_nm = {});
     void setTorques(const std::map<std::string, float>& torques_nm);
 
     // Sets each joint's local ODrive position/velocity gains. pos_gain and
