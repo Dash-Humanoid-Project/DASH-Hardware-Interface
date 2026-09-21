@@ -28,6 +28,7 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
                 config_.teensy_IP[i],
                 config_.PC_network_interface_name,
                 config_.udp_port_PC_teensy[i],
+                config_.udp_port_param_response_PC_teensy[i],
                 config_.N_CAN_bus_lines_per_teensy[i],
                 config_.N_actuator_per_CAN_bus_line,
                 "Teensy" + std::to_string(i + 1)
@@ -62,17 +63,29 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
     // r_ankle (ODRV9, reserved) is not physically installed, so unlike the
     // left leg's l_ankle there's no 5th MotorConfig entry or 3rd CAN bus
     // here (SystemConfig gives Teensy 2 only 2 bus lines). Gear ratios
-    // confirmed identical to the left leg by the user directly. Joint-limit
-    // clamp values are mirrored from the left leg as a starting point (same
-    // placeholder caveat as the left leg above) — should be sanity-checked
-    // against real right-leg motion (does --cartesian's computed EE position
-    // look like a correct mirror image of the left leg's, not a flipped-and-
-    // wrong one) once exercised.
+    // confirmed identical to the left leg by the user directly.
+    //
+    // Joint-limit clamp values, per explicit direction spec (2026-09-10, not
+    // derived from kinematics): hip_yaw/hip_roll spin the same direction on
+    // both legs, so their limits are a straight clone of the left leg's.
+    // knee spins the opposite direction on the right leg, so its limit is
+    // negated-and-swapped: left's [-1.89, 0.0] becomes r_knee's [0.0, 1.89]
+    // — must stay in sync with the sign convention in PositionMode.cpp's
+    // sweepTargets() and the firmware clamp in teensy2/Param.h (ODRV8), or
+    // the PC and firmware clamps fight.
+    //
+    // r_hip_pitch's limits (2026-09-11) are measured directly on this
+    // specific rig via record_joint_limits — the mechanical setup here is
+    // different from whatever the left leg's [-1.89, 0.0] assumed, so that
+    // clone was no longer meaningful. True range of motion measured
+    // [-2.19631, 0.932161] rad relative to its absolute-encoder calibrated
+    // zero; values below pull in 0.05 rad from each true limit so normal
+    // operation doesn't drive it into the hard stops.
     std::vector<MotorConfig> right_motors = {
         {"r_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
         {"r_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
-        {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
-        {"r_knee",      1, 1, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+        {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -2.146f, 0.882f, 2.0f, 1.5f},
+        {"r_knee",      1, 1, TURNS_PER_RAD_10_1,  0.0f, 1.89f,  2.0f, 1.5f},
     };
     right_leg_ = std::make_unique<Leg>(*teensys_[1], std::move(right_motors), "right_leg");
 

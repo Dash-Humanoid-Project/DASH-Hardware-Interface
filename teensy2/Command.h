@@ -379,3 +379,113 @@ struct SetGainsCommand : public CommandBase {
         std::cout << "]" << std::endl;
     }
 };
+
+// Encodes the C++ type of the value payload below (see GetSetParamCommand),
+// since `value` is always a raw 4-byte slot regardless of the ODrive
+// endpoint's real type.
+enum class ParamType : uint8_t { FLOAT = 0, BOOL = 1, UINT8 = 2, INT32 = 3 };
+enum class ParamOp   : uint8_t { GET = 0, SET = 1 };
+
+// Reads or writes one arbitrary ODrive-native CAN parameter ("endpoint",
+// ODrive's own numbering from flat_endpoints.json) on one motor. Unlike
+// PositionCommand/SetGainsCommand this always targets exactly one motor
+// (motor_idx, matching the Teensy's odrives[] index), so there's no
+// num_motors-prefixed variable-length payload — the wire size is fixed.
+// Diagnostic/config use only, not sent every control cycle. See Leg::getParam*/
+// setParam* (src/Leg.cpp) for the PC-side entry point, and teensy2.ino's
+// `case MsgType::GetSetParam` for how this gets relayed to
+// ODriveCAN::getEndpoint<T>()/setEndpoint<T>().
+struct GetSetParamCommand : public CommandBase {
+    uint8_t  motor_idx   = 0;  // index into Teensy's odrives[] (post-sort bus/node order)
+    uint8_t  op          = 0;  // ParamOp
+    uint16_t endpoint_id = 0;  // ODrive flat_endpoints.json id
+    uint8_t  type_tag    = 0;  // ParamType
+    uint8_t  value[4]    = {}; // little-endian encoded value; only meaningful when op==SET
+
+    GetSetParamCommand() = default;
+    GetSetParamCommand(uint8_t m, uint8_t o, uint16_t ep, uint8_t t, const uint8_t v[4])
+        : motor_idx(m), op(o), endpoint_id(ep), type_tag(t) {
+        std::memcpy(value, v, 4);
+    }
+
+    size_t dataSize() const override {
+        return sizeof(motor_idx) + sizeof(op) + sizeof(endpoint_id)
+             + sizeof(type_tag) + sizeof(value);
+    }
+
+    MsgType getType() const override {
+        return MsgType::GetSetParam;
+    }
+
+    void writeToBuffer(uint8_t* buffer) const override {
+        size_t offset = 0;
+        std::memcpy(buffer + offset, &motor_idx, sizeof(motor_idx));       offset += sizeof(motor_idx);
+        std::memcpy(buffer + offset, &op, sizeof(op));                     offset += sizeof(op);
+        std::memcpy(buffer + offset, &endpoint_id, sizeof(endpoint_id));   offset += sizeof(endpoint_id);
+        std::memcpy(buffer + offset, &type_tag, sizeof(type_tag));         offset += sizeof(type_tag);
+        std::memcpy(buffer + offset, value, sizeof(value));
+    }
+
+    void readFromBuffer(const uint8_t* buffer) override {
+        size_t offset = 0;
+        std::memcpy(&motor_idx, buffer + offset, sizeof(motor_idx));       offset += sizeof(motor_idx);
+        std::memcpy(&op, buffer + offset, sizeof(op));                     offset += sizeof(op);
+        std::memcpy(&endpoint_id, buffer + offset, sizeof(endpoint_id));   offset += sizeof(endpoint_id);
+        std::memcpy(&type_tag, buffer + offset, sizeof(type_tag));         offset += sizeof(type_tag);
+        std::memcpy(value, buffer + offset, sizeof(value));
+    }
+
+    void printValue() override {
+        std::cout << "GetSetParamCommand: motor_idx=" << static_cast<int>(motor_idx)
+                   << " op=" << static_cast<int>(op)
+                   << " endpoint_id=" << endpoint_id
+                   << " type_tag=" << static_cast<int>(type_tag) << std::endl;
+    }
+};
+
+// Teensy -> PC reply to a GetSetParamCommand with op==GET. Rides a separate,
+// dedicated low-rate UDP socket (see UPXtreme::receiveParamResponse) — not
+// the 500Hz SystemData feedback path — so it carries no MsgBase/CRC framing
+// of its own; a malformed/short packet just fails to parse on the PC side.
+//
+// wireSize()/pack()/unpack() do explicit field-by-field (un)packing rather
+// than a raw memcpy of sizeof(ParamResponse) — the struct's natural layout
+// may include compiler-inserted padding before `endpoint_id` to align it,
+// and that padding isn't guaranteed identical between the Teensy's ARM
+// compiler and the PC's x86 build. The wire format is always exactly 9
+// bytes: motor_idx(1) + endpoint_id(2, LE) + type_tag(1) + value(4) + ok(1).
+struct ParamResponse {
+    uint8_t  motor_idx;
+    uint16_t endpoint_id;
+    uint8_t  type_tag;
+    uint8_t  value[4];
+    // Always 1 today: the vendored ODriveCAN::getEndpoint<T>() returns T{}
+    // (zero) on both a genuine CAN timeout and a real value of zero, with
+    // no way to tell those apart, so the Teensy has no real failure signal
+    // to report here. Kept as a field (rather than removed) so a future,
+    // more capable getEndpoint() can start reporting real failures without
+    // another wire-format change.
+    uint8_t  ok;
+
+    static constexpr size_t wireSize() { return 1 + 2 + 1 + 4 + 1; }
+
+    void pack(uint8_t* buffer) const {
+        size_t offset = 0;
+        std::memcpy(buffer + offset, &motor_idx, 1);    offset += 1;
+        std::memcpy(buffer + offset, &endpoint_id, 2);  offset += 2;
+        std::memcpy(buffer + offset, &type_tag, 1);     offset += 1;
+        std::memcpy(buffer + offset, value, 4);         offset += 4;
+        std::memcpy(buffer + offset, &ok, 1);
+    }
+
+    static ParamResponse unpack(const uint8_t* buffer) {
+        ParamResponse r{};
+        size_t offset = 0;
+        std::memcpy(&r.motor_idx, buffer + offset, 1);    offset += 1;
+        std::memcpy(&r.endpoint_id, buffer + offset, 2);  offset += 2;
+        std::memcpy(&r.type_tag, buffer + offset, 1);     offset += 1;
+        std::memcpy(r.value, buffer + offset, 4);         offset += 4;
+        std::memcpy(&r.ok, buffer + offset, 1);
+        return r;
+    }
+};

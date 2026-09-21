@@ -102,6 +102,18 @@ void SimUPXtreme::sendSetGainsCommand(std::vector<float> pos_gains,
     std::cout << "[Sim] SetGains (no-op)" << std::endl;
 }
 
+void SimUPXtreme::sendGetSetParamCommand(uint8_t, ParamOp, uint16_t, ParamType, const uint8_t[4])
+{
+    // No real ODrive CAN endpoints to talk to in sim mode.
+    std::cout << "[Sim] GetSetParam (no-op)" << std::endl;
+}
+
+bool SimUPXtreme::receiveParamResponse(ParamResponse&, int)
+{
+    // Nothing will ever reply in sim mode — always "times out".
+    return false;
+}
+
 void SimUPXtreme::simLoop()
 {
     using clock = std::chrono::steady_clock;

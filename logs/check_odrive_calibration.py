@@ -73,6 +73,19 @@ def describe_axis(axis, label):
     else:
         print(f"    config.*                    = {config}")
 
+    controller = get(axis, "controller")
+    if not isinstance(controller, str):
+        ctrl_cfg = get(controller, "config")
+        if not isinstance(ctrl_cfg, str):
+            print(f"    controller.config.pos_gain                 = {get(ctrl_cfg, 'pos_gain')}  "
+                  f"(compare left vs. right leg here)")
+            print(f"    controller.config.vel_gain                 = {get(ctrl_cfg, 'vel_gain')}")
+            print(f"    controller.config.vel_integrator_gain      = {get(ctrl_cfg, 'vel_integrator_gain')}")
+        else:
+            print(f"    controller.config.*         = {ctrl_cfg}")
+    else:
+        print(f"    controller.*                = {controller}")
+
 
 def main():
     while True:

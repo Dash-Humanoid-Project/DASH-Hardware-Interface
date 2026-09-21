@@ -108,7 +108,8 @@ struct ODriveUserData {
 
     Heartbeat_msg_t last_heartbeat;
     bool received_heartbeat = false;
-    bool is_active = false;  // set true if heartbeat received during setup
+    bool is_active = false;  // recomputed every loop() from last_heartbeat_timer
+    elapsedMillis last_heartbeat_timer;  // time since the last heartbeat; grows unbounded if none ever arrives
     Get_Encoder_Estimates_msg_t last_feedback;
     bool received_feedback = false;
     int bus_idx_;
@@ -137,6 +138,7 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
     uint32_t prev_error = odrv_user_data->last_heartbeat.Axis_Error;
     odrv_user_data->last_heartbeat = msg;
     odrv_user_data->received_heartbeat = true;
+    odrv_user_data->last_heartbeat_timer = 0;
 
     static int heartbeat_count = 0;
     if (++heartbeat_count % 5000 == 0) {
@@ -261,12 +263,13 @@ void setup()
     }
     Serial.println("");
 
-    // Mark which ODrives responded — only these are used for feedback gating
+    // Initial snapshot only — loop() recomputes is_active continuously from
+    // last_heartbeat_timer afterward (see updateActiveStates()), so a board
+    // that's still mid-reboot right now isn't stuck "inactive" forever.
+    updateActiveStates();
     int active_count = 0;
-    for (size_t i = 0; i < num_odrives; ++i) {
-        odrives_data[i]->is_active = odrives_data[i]->received_heartbeat;
+    for (size_t i = 0; i < num_odrives; ++i)
         if (odrives_data[i]->is_active) active_count++;
-    }
     Serial.print("Active ODrives: "); Serial.println(active_count);
 
     Serial.println("ODrives found. Ready for commands.");
@@ -400,6 +403,7 @@ void loop()
 {
     pumpEvents(can1);
     pumpEvents(can2);
+    updateActiveStates();
 
     // Serial Plotter feed (Tools > Serial Plotter) — 50 Hz is plenty for a
     // human-readable plot and keeps Serial overhead from perturbing loop
@@ -747,6 +751,17 @@ void idleAllODrives()
         delay(10); // let the bus drain this node's frame before the next setState() fires
     }
     current_mode = 0; // reset so next mode always re-sends setControllerMode
+}
+
+// Recomputed every loop() from time-since-last-heartbeat, not latched once at
+// setup(): a board that was mid-reboot when this Teensy booted (or comes
+// online late, or briefly drops out and recovers) is picked up automatically
+// instead of being permanently treated as inactive for the rest of the
+// session.
+void updateActiveStates()
+{
+    for (size_t i = 0; i < num_odrives; ++i)
+        odrives_data[i]->is_active = odrives_data[i]->last_heartbeat_timer < HEARTBEAT_LIVENESS_TIMEOUT_MS;
 }
 
 bool receivedFeedbackOnAllODrives()

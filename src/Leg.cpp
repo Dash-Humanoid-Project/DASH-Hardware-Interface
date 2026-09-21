@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
+#include <cstring>
 
 namespace {
 constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
@@ -176,4 +177,72 @@ void Leg::setGains(const std::map<std::string, float>& pos_gain,
     }
 
     teensy_.sendSetGainsCommand(pg, vg, vig);
+}
+
+void Leg::setParamRaw(const std::string& joint_name, uint16_t endpoint_id,
+                       ParamType type, const uint8_t value[4])
+{
+    int idx = motorIndex(joint_name);
+    if (idx < 0) throw std::runtime_error("Leg::setParamRaw: unknown joint: " + joint_name);
+
+    teensy_.sendGetSetParamCommand(static_cast<uint8_t>(idx), ParamOp::SET,
+                                    endpoint_id, type, value);
+}
+
+void Leg::getParamRaw(const std::string& joint_name, uint16_t endpoint_id,
+                       ParamType type, uint8_t out_value[4], int timeout_ms) const
+{
+    int idx = motorIndex(joint_name);
+    if (idx < 0) throw std::runtime_error("Leg::getParamRaw: unknown joint: " + joint_name);
+
+    uint8_t zero[4] = {0, 0, 0, 0};
+    teensy_.sendGetSetParamCommand(static_cast<uint8_t>(idx), ParamOp::GET,
+                                    endpoint_id, type, zero);
+
+    ParamResponse resp;
+    if (!teensy_.receiveParamResponse(resp, timeout_ms))
+        throw std::runtime_error("Leg::getParamRaw: timed out waiting for response ("
+                                  + joint_name + ", endpoint " + std::to_string(endpoint_id) + ")");
+    if (resp.ok == 0)
+        throw std::runtime_error("Leg::getParamRaw: ODrive getEndpoint() timed out ("
+                                  + joint_name + ", endpoint " + std::to_string(endpoint_id) + ")");
+    if (resp.motor_idx != idx || resp.endpoint_id != endpoint_id)
+        throw std::runtime_error("Leg::getParamRaw: response didn't match the request ("
+                                  + joint_name + ", endpoint " + std::to_string(endpoint_id) + ")");
+
+    std::memcpy(out_value, resp.value, 4);
+}
+
+float Leg::getParamFloat(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms) const {
+    uint8_t v[4]; getParamRaw(joint_name, endpoint_id, ParamType::FLOAT, v, timeout_ms);
+    float out; std::memcpy(&out, v, 4); return out;
+}
+bool Leg::getParamBool(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms) const {
+    uint8_t v[4]; getParamRaw(joint_name, endpoint_id, ParamType::BOOL, v, timeout_ms);
+    return v[0] != 0;
+}
+uint8_t Leg::getParamUint8(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms) const {
+    uint8_t v[4]; getParamRaw(joint_name, endpoint_id, ParamType::UINT8, v, timeout_ms);
+    return v[0];
+}
+int32_t Leg::getParamInt32(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms) const {
+    uint8_t v[4]; getParamRaw(joint_name, endpoint_id, ParamType::INT32, v, timeout_ms);
+    int32_t out; std::memcpy(&out, v, 4); return out;
+}
+
+void Leg::setParamFloat(const std::string& joint_name, uint16_t endpoint_id, float value) {
+    uint8_t v[4]; std::memcpy(v, &value, 4);
+    setParamRaw(joint_name, endpoint_id, ParamType::FLOAT, v);
+}
+void Leg::setParamBool(const std::string& joint_name, uint16_t endpoint_id, bool value) {
+    uint8_t v[4] = {static_cast<uint8_t>(value ? 1 : 0), 0, 0, 0};
+    setParamRaw(joint_name, endpoint_id, ParamType::BOOL, v);
+}
+void Leg::setParamUint8(const std::string& joint_name, uint16_t endpoint_id, uint8_t value) {
+    uint8_t v[4] = {value, 0, 0, 0};
+    setParamRaw(joint_name, endpoint_id, ParamType::UINT8, v);
+}
+void Leg::setParamInt32(const std::string& joint_name, uint16_t endpoint_id, int32_t value) {
+    uint8_t v[4]; std::memcpy(v, &value, 4);
+    setParamRaw(joint_name, endpoint_id, ParamType::INT32, v);
 }

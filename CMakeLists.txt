@@ -78,6 +78,20 @@ target_link_libraries(test_udp_benchmark dash_hardware_interface)
 add_executable(imu_test test/ImuTest.cpp)
 target_link_libraries(imu_test dash_hardware_interface)
 
+# One-time absolute-encoder ("zero here, never home again") setup over CAN
+add_executable(calibrate_absolute_encoder test/CalibrateAbsoluteEncoder.cpp test/TestUtils.cpp)
+target_link_libraries(calibrate_absolute_encoder dash_hardware_interface)
+
+# Startup sanity move: ramp calibrated absolute-encoder joints from
+# "almost zero" to exactly 0.0 rad
+add_executable(startup_zero_move test/StartupZeroMove.cpp test/TestUtils.cpp)
+target_link_libraries(startup_zero_move dash_hardware_interface)
+
+# Records a calibrated joint's true range of motion relative to its
+# absolute-encoder zero, by hand
+add_executable(record_joint_limits test/RecordJointLimits.cpp test/TestUtils.cpp)
+target_link_libraries(record_joint_limits dash_hardware_interface)
+
 # copy selected files to teensy/
 file(GLOB HEADER_FILES_TO_COPY ${CMAKE_SOURCE_DIR}/include/*.h)
 

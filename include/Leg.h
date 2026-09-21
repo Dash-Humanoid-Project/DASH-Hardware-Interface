@@ -55,10 +55,37 @@ public:
     void idle() { teensy_.sendIdleCommand(); }
     void startClosedLoop() { teensy_.sendStartCommand(); }
 
+    // Reads/writes one arbitrary ODrive-native CAN parameter ("endpoint_id" —
+    // ODrive's own numbering; get it via the odrive Python package:
+    // type(obj).__dict__[name]._info.endpoint_id) on one joint's ODrive.
+    // Diagnostic/config use only — not for the control loop, and not safe to
+    // call while this leg is under active full-rate closed-loop control
+    // (the Teensy blocks its main loop for up to ~10ms per get). Throws if
+    // joint_name is unknown or the get times out / the response doesn't
+    // match what was requested.
+    float   getParamFloat(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms = 200) const;
+    bool    getParamBool (const std::string& joint_name, uint16_t endpoint_id, int timeout_ms = 200) const;
+    uint8_t getParamUint8(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms = 200) const;
+    int32_t getParamInt32(const std::string& joint_name, uint16_t endpoint_id, int timeout_ms = 200) const;
+
+    void setParamFloat(const std::string& joint_name, uint16_t endpoint_id, float value);
+    void setParamBool (const std::string& joint_name, uint16_t endpoint_id, bool value);
+    void setParamUint8(const std::string& joint_name, uint16_t endpoint_id, uint8_t value);
+    void setParamInt32(const std::string& joint_name, uint16_t endpoint_id, int32_t value);
+
 private:
     UPXtreme& teensy_;
     std::vector<MotorConfig> motors_;  // sorted by (bus_idx, node_idx)
     std::string name_;
 
     int motorIndex(const std::string& joint_name) const;
+
+    // Shared implementation for the typed getParam*/setParam* wrappers above —
+    // resolves joint_name to the Teensy's odrives[] index and does the
+    // request (+ response wait, for get). Throws std::runtime_error on an
+    // unknown joint, a timeout, or a response that doesn't match the request.
+    void setParamRaw(const std::string& joint_name, uint16_t endpoint_id,
+                     ParamType type, const uint8_t value[4]);
+    void getParamRaw(const std::string& joint_name, uint16_t endpoint_id,
+                     ParamType type, uint8_t out_value[4], int timeout_ms) const;
 };

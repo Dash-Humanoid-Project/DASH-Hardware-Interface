@@ -41,6 +41,12 @@ IPAddress gateway(10, 176, 32, 1);
 constexpr uint32_t kDHCPTimeout = 15000;
 constexpr uint16_t teensy_udp_port_listening = 8001;
 constexpr uint16_t PC_udp_port_listening = 8001;
+// Dedicated low-rate port for GetSetParamCommand responses only — matches
+// SystemConfig.h's udp_port_param_response_PC_teensy[1] on the PC side.
+// Deliberately separate from PC_udp_port_listening above (the 500Hz
+// SystemData feedback port) so this diagnostic-only feature can never
+// perturb that path.
+constexpr uint16_t PC_udp_port_param_response_listening = 8011;
 
 // PC address is learned from the first incoming UDP packet.
 IPAddress pc_ip_;
@@ -100,7 +106,8 @@ struct ODriveUserData {
 
     Heartbeat_msg_t last_heartbeat;
     bool received_heartbeat = false;
-    bool is_active = false;  // set true if heartbeat received during setup
+    bool is_active = false;  // recomputed every loop() from last_heartbeat_timer
+    elapsedMillis last_heartbeat_timer;  // time since the last heartbeat; grows unbounded if none ever arrives
     Get_Encoder_Estimates_msg_t last_feedback;
     bool received_feedback = false;
     int bus_idx_;
@@ -124,6 +131,7 @@ void onHeartbeat(Heartbeat_msg_t& msg, void* user_data) {
     uint32_t prev_error = odrv_user_data->last_heartbeat.Axis_Error;
     odrv_user_data->last_heartbeat = msg;
     odrv_user_data->received_heartbeat = true;
+    odrv_user_data->last_heartbeat_timer = 0;
 
     static int heartbeat_count = 0;
     if (++heartbeat_count % 5000 == 0) {
@@ -248,12 +256,13 @@ void setup()
     }
     Serial.println("");
 
-    // Mark which ODrives responded — only these are used for feedback gating
+    // Initial liveness snapshot (loop() recomputes this continuously from
+    // last_heartbeat_timer afterward — see updateActiveStates() — so a board
+    // that's still mid-reboot right now isn't stuck "inactive" forever).
+    updateActiveStates();
     int active_count = 0;
-    for (size_t i = 0; i < num_odrives; ++i) {
-        odrives_data[i]->is_active = odrives_data[i]->received_heartbeat;
+    for (size_t i = 0; i < num_odrives; ++i)
         if (odrives_data[i]->is_active) active_count++;
-    }
     Serial.print("Active ODrives: "); Serial.println(active_count);
 
     Serial.println("ODrives found. Ready for commands.");
@@ -387,6 +396,7 @@ void loop()
 {
     pumpEvents(can1);
     pumpEvents(can2);
+    updateActiveStates();
 
     // Serial Plotter feed (Tools > Serial Plotter) — 50 Hz is plenty for a
     // human-readable plot and keeps Serial overhead from perturbing loop
@@ -659,6 +669,108 @@ void parseAndProcessUDPPacket()
             break;
         }
 
+        case MsgType::GetSetParam: {
+            // Diagnostic/config path — reads or writes one arbitrary ODrive
+            // CAN "endpoint" (see include/Command.h's GetSetParamCommand for
+            // the wire format, and Leg::getParam*/setParam* on the PC side
+            // for the entry point). Not sent every cycle like Position/
+            // Velocity/Torque commands, so the blocking getEndpoint() call
+            // below (~10ms max) is safe relative to WATCHDOG_TIMEOUT_MS.
+            size_t payload_size = GetSetParamCommand().dataSize();
+
+            uint8_t received_crc   = data[1 + payload_size];
+            uint8_t calculated_crc = calculate_crc8(data, 1 + payload_size);
+            if (received_crc != calculated_crc) {
+                Serial.println("CRC MISMATCH: GetSetParamCommand dropped");
+                break;
+            }
+            last_valid_cmd_timer = 0;
+
+            memcpy(payload_buf, data + 1, payload_size);
+            GetSetParamCommand cmd;
+            std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
+            cmd.deserialize(payload);
+
+            if (cmd.motor_idx >= num_odrives) {
+                Serial.println("GetSetParam: motor_idx out of range");
+                break;
+            }
+            ODriveCAN* odrv = odrives[cmd.motor_idx];
+
+            if (cmd.op == static_cast<uint8_t>(ParamOp::SET)) {
+                switch (static_cast<ParamType>(cmd.type_tag)) {
+                    case ParamType::FLOAT: {
+                        float v; memcpy(&v, cmd.value, 4);
+                        odrv->setEndpoint<float>(cmd.endpoint_id, v);
+                        break;
+                    }
+                    case ParamType::BOOL:
+                        odrv->setEndpoint<bool>(cmd.endpoint_id, cmd.value[0] != 0);
+                        break;
+                    case ParamType::UINT8:
+                        odrv->setEndpoint<uint8_t>(cmd.endpoint_id, cmd.value[0]);
+                        break;
+                    case ParamType::INT32: {
+                        int32_t v; memcpy(&v, cmd.value, 4);
+                        odrv->setEndpoint<int32_t>(cmd.endpoint_id, v);
+                        break;
+                    }
+                }
+                // Fire-and-forget: setEndpoint() doesn't await a CAN reply,
+                // and no response is sent back to the PC for SET.
+            } else {
+                ParamResponse resp;
+                resp.motor_idx = cmd.motor_idx;
+                resp.endpoint_id = cmd.endpoint_id;
+                resp.type_tag = cmd.type_tag;
+                memset(resp.value, 0, sizeof(resp.value));
+                // NOTE: the vendored ODriveCAN::getEndpoint<T>() returns T{}
+                // (zero) both on a genuine timeout and on a real value of
+                // zero — it has no way to tell those apart, so `ok` below
+                // isn't a true correctness signal, just "the call returned."
+                // Treat an all-zero response with suspicion for a parameter
+                // that's never legitimately zero — confirmed 2026-09-10 that
+                // an all-zero result is exactly what this looks like when
+                // the target ODrive has no motor power (every axis reads 0,
+                // not just the one being queried); check that before
+                // suspecting this code again. Timeout bumped 10ms -> 100ms
+                // since this axis's CAN bus also carries continuous 500Hz
+                // encoder-estimate traffic that a short window could race
+                // against; still comfortably under WATCHDOG_TIMEOUT_MS (150ms).
+                resp.ok = 1;
+
+                switch (static_cast<ParamType>(cmd.type_tag)) {
+                    case ParamType::FLOAT: {
+                        float v = odrv->getEndpoint<float>(cmd.endpoint_id, 100);
+                        memcpy(resp.value, &v, 4);
+                        break;
+                    }
+                    case ParamType::BOOL: {
+                        bool v = odrv->getEndpoint<bool>(cmd.endpoint_id, 100);
+                        resp.value[0] = v ? 1 : 0;
+                        break;
+                    }
+                    case ParamType::UINT8: {
+                        uint8_t v = odrv->getEndpoint<uint8_t>(cmd.endpoint_id, 100);
+                        resp.value[0] = v;
+                        break;
+                    }
+                    case ParamType::INT32: {
+                        int32_t v = odrv->getEndpoint<int32_t>(cmd.endpoint_id, 100);
+                        memcpy(resp.value, &v, 4);
+                        break;
+                    }
+                }
+
+                if (pc_ip_known_) {
+                    uint8_t resp_buf[ParamResponse::wireSize()];
+                    resp.pack(resp_buf);
+                    udp.send(pc_ip_, PC_udp_port_param_response_listening, resp_buf, sizeof(resp_buf));
+                }
+            }
+            break;
+        }
+
         default:
             Serial.println("Unknown MsgType!");
             break;
@@ -673,6 +785,17 @@ void idleAllODrives()
     for (size_t i = 0; i < num_odrives; ++i)
         odrives[i]->setState(ODriveAxisState::AXIS_STATE_IDLE);
     current_mode = 0; // reset so next mode always re-sends setControllerMode
+}
+
+// Recomputed every loop() from time-since-last-heartbeat, not latched once at
+// setup(): a board that was mid-reboot when this Teensy booted (or comes
+// online late, or briefly drops out and recovers) is picked up automatically
+// instead of being permanently treated as inactive for the rest of the
+// session.
+void updateActiveStates()
+{
+    for (size_t i = 0; i < num_odrives; ++i)
+        odrives_data[i]->is_active = odrives_data[i]->last_heartbeat_timer < HEARTBEAT_LIVENESS_TIMEOUT_MS;
 }
 
 bool receivedFeedbackOnAllODrives()

@@ -183,13 +183,28 @@
 #define ODRV6_TAU_MAX_NM     0.2f
 #define ODRV6_VEL_MAX_TURNS_S 1.591549f
 
+// r_hip_pitch: per explicit direction spec (2026-09-10), hip_pitch spins
+// the same direction on both legs, so this is a straight clone of
+// ODRV2 (l_hip_pitch) — matches HardwareBridge.cpp's r_hip_pitch
+// MotorConfig limits ([-1.89, 0.0] rad).
+//
+// THIS FILE (include/Param.h), not teensy2/Param.h, is the actual source
+// of truth: CMakeLists.txt's copy_to_teensy_dir target runs on every
+// build (it's an ALL target) and unconditionally overwrites
+// teensy/teensy2/teensy3/teensy4's Param.h from here. Editing the
+// per-teensy copy directly gets silently reverted by the next `make`.
 #define ODRV7_Q_MIN_TURNS   -3.0f
 #define ODRV7_Q_MAX_TURNS    0.0f
 #define ODRV7_TAU_MAX_NM     0.2f
 #define ODRV7_VEL_MAX_TURNS_S 2.387324f
 
-#define ODRV8_Q_MIN_TURNS   -3.0f
-#define ODRV8_Q_MAX_TURNS    0.0f
+// r_knee: per the same spec, knee spins the OPPOSITE direction on the
+// right leg, so this is negated-and-swapped from ODRV3 (l_knee)'s
+// [-3.0, 0.0] — matches HardwareBridge.cpp's r_knee MotorConfig limits
+// ([0.0, 1.89] rad). Must stay in sync with the `sign` term in
+// PositionMode.cpp's sweepTargets() (applied only to the knee).
+#define ODRV8_Q_MIN_TURNS    0.0f
+#define ODRV8_Q_MAX_TURNS    3.0f
 #define ODRV8_TAU_MAX_NM     0.2f
 #define ODRV8_VEL_MAX_TURNS_S 2.387324f
 
@@ -285,6 +300,18 @@
 // absorb normal jitter, short enough to catch a real stall quickly. Adjust
 // here if it trips too eagerly or too late in practice.
 #define WATCHDOG_TIMEOUT_MS 150
+
+// ===== Per-ODrive heartbeat liveness timeout =====
+// is_active is recomputed every loop() from each ODrive's time-since-last-
+// heartbeat rather than latched once at setup() — a board that was mid-reboot
+// (or simply not yet powered) when its Teensy booted used to be permanently
+// treated as inactive (silently frozen feedback) for the rest of that
+// Teensy's session, only fixable by resetting the Teensy itself (found
+// 2026-09-10 during absolute-encoder calibration testing, which power-cycled
+// one ODrive repeatedly while its Teensy stayed up). 5x the 100ms heartbeat
+// rate: absorbs a few dropped/missed heartbeats without flapping, while still
+// catching a real dropout within half a second.
+#define HEARTBEAT_LIVENESS_TIMEOUT_MS 500
 
 // ===== Network config =====
 #define TEENSY1_IP "10.176.32.33"

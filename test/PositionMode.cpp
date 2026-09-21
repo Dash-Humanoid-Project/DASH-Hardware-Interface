@@ -41,7 +41,7 @@ PositionMode::PositionMode(HardwareBridge& bridge, Leg& left, Leg& right, Leg& a
 }
 
 void PositionMode::sweepTargets(const std::string& prefix, const float hold[5],
-                                float t, float phase,
+                                float t, float phase, float sign,
                                 std::map<std::string, float>& pos_rad,
                                 std::map<std::string, float>& vel_ff_rad_s)
 {
@@ -60,7 +60,12 @@ void PositionMode::sweepTargets(const std::string& prefix, const float hold[5],
         return;
     }
 
-    // Positions in true joint-space rad
+    // Positions in true joint-space rad. Per-joint direction convention
+    // (2026-09-10): hip_yaw/hip_roll/hip_pitch spin the same direction on
+    // both legs (`sign` is not applied to them at all — q0/q1/q2 use the
+    // exact same formula regardless of leg); knee (and ankle, once it has
+    // a real sweep) spins the opposite direction on the right leg, so
+    // `sign` (+1 left, -1 right) is applied only to q3/vf3.
     float q0 =  sinf(phase) * POS_AMP_HIP_RAD;
     float q1 = -sinf(phase) * POS_AMP_HIP_RAD;
 
@@ -69,11 +74,13 @@ void PositionMode::sweepTargets(const std::string& prefix, const float hold[5],
     float vf0 =  cosf(phase) * dphase_dt * POS_AMP_HIP_RAD;
     float vf1 = -cosf(phase) * dphase_dt * POS_AMP_HIP_RAD;
 
-    // hip_pitch/knee: cosine-based downward sweep (π/2 phase lag)
+    // hip_pitch: cosine-based downward sweep (π/2 phase lag), same direction both legs
     float q2 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * (sinf(phase - static_cast<float>(M_PI/2)) + 1.0f);
-    float q3 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * (sinf(phase - static_cast<float>(M_PI/2)) + 1.0f);
     float vf2 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * cosf(phase - static_cast<float>(M_PI/2)) * dphase_dt;
-    float vf3 = -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * cosf(phase - static_cast<float>(M_PI/2)) * dphase_dt;
+
+    // knee: same shape, but opposite direction on the right leg
+    float q3 = sign * -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * (sinf(phase - static_cast<float>(M_PI/2)) + 1.0f);
+    float vf3 = sign * -0.5f * POS_AMP_HIP_PITCH_KNEE_RAD * cosf(phase - static_cast<float>(M_PI/2)) * dphase_dt;
 
     // ankle: no prior motion profile exists in git history, so it is
     // held at its home position (vel_ff=0) rather than guessing a sweep.
@@ -204,8 +211,8 @@ void PositionMode::run()
     float phase = (t < HOLD_TIME) ? 0.0f : (t - HOLD_TIME) * static_cast<float>(TWO_PI / SINE_PERIOD);
 
     std::map<std::string, float> pos_left, vel_left, pos_right, vel_right, pos_arm, vel_arm, pos_right_arm, vel_right_arm;
-    sweepTargets("l_", hold_left_,  t, phase, pos_left,  vel_left);
-    sweepTargets("r_", hold_right_, t, phase, pos_right, vel_right);
+    sweepTargets("l_", hold_left_,  t, phase,  1.0f, pos_left,  vel_left);
+    sweepTargets("r_", hold_right_, t, phase, -1.0f, pos_right, vel_right);
     armSweepTargets("l_", hold_arm_,       t, phase, pos_arm,       vel_arm);
     armSweepTargets("r_", hold_right_arm_, t, phase, pos_right_arm, vel_right_arm);
 

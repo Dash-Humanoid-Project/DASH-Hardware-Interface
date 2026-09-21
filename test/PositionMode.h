@@ -39,9 +39,13 @@ public:
 private:
     // Computes this tick's joint-space position/velocity-feedforward targets
     // for one leg, given its joint-name prefix ("l_" or "r_") and captured
-    // home position. Both legs use the identical sweep formula/amplitudes.
+    // home position. Direction convention (2026-09-10, explicit spec, not
+    // derived): hip_yaw/hip_roll/hip_pitch spin the same direction on both
+    // legs — `sign` has no effect on them. knee (and ankle, once it gets a
+    // real sweep) spins the opposite direction on the right leg, so `sign`
+    // (+1 left, -1 right) is applied only to the knee term.
     static void sweepTargets(const std::string& prefix, const float hold[5],
-                              float t, float phase,
+                              float t, float phase, float sign,
                               std::map<std::string, float>& pos_rad,
                               std::map<std::string, float>& vel_ff_rad_s);
 

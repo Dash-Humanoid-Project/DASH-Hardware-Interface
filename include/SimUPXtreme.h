@@ -37,6 +37,9 @@ public:
     void sendSetGainsCommand(std::vector<float> pos_gains,
                               std::vector<float> vel_gains,
                               std::vector<float> vel_integrator_gains) override;
+    void sendGetSetParamCommand(uint8_t motor_idx, ParamOp op, uint16_t endpoint_id,
+                                 ParamType type, const uint8_t value[4]) override;
+    bool receiveParamResponse(ParamResponse& out, int timeout_ms = 200) override;
 
 private:
     enum class SimMode { IDLE, POSITION, VELOCITY, TORQUE };

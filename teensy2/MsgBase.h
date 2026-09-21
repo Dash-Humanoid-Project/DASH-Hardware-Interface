@@ -13,6 +13,7 @@ enum class MsgType : uint8_t {
     StartCommand    = 0x06,
     Heartbeat       = 0x07,
     SetGains        = 0x08,
+    GetSetParam     = 0x09,
 };
 
 struct MsgBase {
