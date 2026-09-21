@@ -26,9 +26,10 @@
 // boot — confirmed to survive a real power cycle. Don't run this until the
 // joint is physically where you want zero to be.
 //
-// Only works for joints wired to teensy2.ino's GetSetParam handler today
-// (right leg). Endpoint IDs are firmware-build-specific but were confirmed
-// shared across every board checked (fw 0.6.11 / hw 4.4.58).
+// GetSetParam is now wired on all four Teensys (2026-09-21), so this works
+// for any leg/arm joint, not just the right leg. Endpoint IDs are
+// firmware-build-specific but were confirmed shared across every board
+// checked (fw 0.6.11 / hw 4.4.58).
 #include <iostream>
 #include <chrono>
 #include <cmath>
@@ -136,6 +137,19 @@ void printReadback(Leg& leg, const std::string& joint) {
               << "  (should already be ~0 immediately after a fresh power-on, no homing needed)" << std::endl;
 }
 
+// Maps a joint name to its owning limb. l_*/r_* selects left/right;
+// shoulder/elbow selects the arm, everything else the leg.
+Leg& selectLeg(HardwareBridge& bridge, const std::string& joint) {
+    bool is_right = joint.rfind("r_", 0) == 0;
+    bool is_left  = joint.rfind("l_", 0) == 0;
+    if (!is_left && !is_right) {
+        throw std::runtime_error("Joint name must start with l_ or r_: " + joint);
+    }
+    bool is_arm = joint.find("shoulder") != std::string::npos || joint.find("elbow") != std::string::npos;
+    if (is_arm) return is_right ? bridge.rightArm() : bridge.leftArm();
+    return is_right ? bridge.rightLeg() : bridge.leftLeg();
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -147,10 +161,6 @@ int main(int argc, char** argv) {
     }
     std::string joint = argv[1];
     bool check_only = (argc == 3 && std::string(argv[2]) == "--check");
-    if (joint.rfind("r_", 0) != 0) {
-        std::cerr << "Only r_* joints are wired for GetSetParam (right leg / teensy2.ino) so far." << std::endl;
-        return 1;
-    }
 
     HardwareBridge bridge(false);
     bridge.start();
@@ -159,7 +169,7 @@ int main(int argc, char** argv) {
 
     int result = 0;
     try {
-        Leg& leg = bridge.rightLeg();
+        Leg& leg = selectLeg(bridge, joint);
 
         // This board may have rebooted on its own (a previous run of this
         // tool, or a real physical power-cycle) since the Teensy last booted

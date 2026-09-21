@@ -51,6 +51,12 @@ IPAddress gateway(10, 176, 32, 1);
 constexpr uint32_t kDHCPTimeout = 15000;
 constexpr uint16_t teensy_udp_port_listening = 8002;
 constexpr uint16_t PC_udp_port_listening = 8002;
+// Dedicated low-rate port for GetSetParamCommand responses only — matches
+// SystemConfig.h's udp_port_param_response_PC_teensy[2] on the PC side.
+// Deliberately separate from PC_udp_port_listening above (the 500Hz
+// SystemData feedback port) so this diagnostic-only feature can never
+// perturb that path.
+constexpr uint16_t PC_udp_port_param_response_listening = 8012;
 
 // PC address is learned from the first incoming UDP packet.
 IPAddress pc_ip_;
@@ -715,6 +721,108 @@ void parseAndProcessUDPPacket()
                 delay(10); // let the bus drain before the next node's gain-set
             }
             Serial.println("Applied SetGainsCommand");
+            break;
+        }
+
+        case MsgType::GetSetParam: {
+            // Diagnostic/config path — reads or writes one arbitrary ODrive
+            // CAN "endpoint" (see include/Command.h's GetSetParamCommand for
+            // the wire format, and Leg::getParam*/setParam* on the PC side
+            // for the entry point). Not sent every cycle like Position/
+            // Velocity/Torque commands, so the blocking getEndpoint() call
+            // below (~10ms max) is safe relative to WATCHDOG_TIMEOUT_MS.
+            size_t payload_size = GetSetParamCommand().dataSize();
+
+            uint8_t received_crc   = data[1 + payload_size];
+            uint8_t calculated_crc = calculate_crc8(data, 1 + payload_size);
+            if (received_crc != calculated_crc) {
+                Serial.println("CRC MISMATCH: GetSetParamCommand dropped");
+                break;
+            }
+            last_valid_cmd_timer = 0;
+
+            memcpy(payload_buf, data + 1, payload_size);
+            GetSetParamCommand cmd;
+            std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
+            cmd.deserialize(payload);
+
+            if (cmd.motor_idx >= num_odrives) {
+                Serial.println("GetSetParam: motor_idx out of range");
+                break;
+            }
+            ODriveCAN* odrv = odrives[cmd.motor_idx];
+
+            if (cmd.op == static_cast<uint8_t>(ParamOp::SET)) {
+                switch (static_cast<ParamType>(cmd.type_tag)) {
+                    case ParamType::FLOAT: {
+                        float v; memcpy(&v, cmd.value, 4);
+                        odrv->setEndpoint<float>(cmd.endpoint_id, v);
+                        break;
+                    }
+                    case ParamType::BOOL:
+                        odrv->setEndpoint<bool>(cmd.endpoint_id, cmd.value[0] != 0);
+                        break;
+                    case ParamType::UINT8:
+                        odrv->setEndpoint<uint8_t>(cmd.endpoint_id, cmd.value[0]);
+                        break;
+                    case ParamType::INT32: {
+                        int32_t v; memcpy(&v, cmd.value, 4);
+                        odrv->setEndpoint<int32_t>(cmd.endpoint_id, v);
+                        break;
+                    }
+                }
+                // Fire-and-forget: setEndpoint() doesn't await a CAN reply,
+                // and no response is sent back to the PC for SET.
+            } else {
+                ParamResponse resp;
+                resp.motor_idx = cmd.motor_idx;
+                resp.endpoint_id = cmd.endpoint_id;
+                resp.type_tag = cmd.type_tag;
+                memset(resp.value, 0, sizeof(resp.value));
+                // NOTE: the vendored ODriveCAN::getEndpoint<T>() returns T{}
+                // (zero) both on a genuine timeout and on a real value of
+                // zero — it has no way to tell those apart, so `ok` below
+                // isn't a true correctness signal, just "the call returned."
+                // Treat an all-zero response with suspicion for a parameter
+                // that's never legitimately zero — see teensy2.ino's
+                // GetSetParam handler for the confirmed 2026-09-10 finding
+                // that an all-zero result is exactly what an unpowered
+                // ODrive looks like (every axis reads 0, not just the one
+                // being queried). Timeout is 100ms since this axis's CAN
+                // bus also carries continuous 500Hz encoder-estimate
+                // traffic that a short window could race against; still
+                // comfortably under WATCHDOG_TIMEOUT_MS (150ms).
+                resp.ok = 1;
+
+                switch (static_cast<ParamType>(cmd.type_tag)) {
+                    case ParamType::FLOAT: {
+                        float v = odrv->getEndpoint<float>(cmd.endpoint_id, 100);
+                        memcpy(resp.value, &v, 4);
+                        break;
+                    }
+                    case ParamType::BOOL: {
+                        bool v = odrv->getEndpoint<bool>(cmd.endpoint_id, 100);
+                        resp.value[0] = v ? 1 : 0;
+                        break;
+                    }
+                    case ParamType::UINT8: {
+                        uint8_t v = odrv->getEndpoint<uint8_t>(cmd.endpoint_id, 100);
+                        resp.value[0] = v;
+                        break;
+                    }
+                    case ParamType::INT32: {
+                        int32_t v = odrv->getEndpoint<int32_t>(cmd.endpoint_id, 100);
+                        memcpy(resp.value, &v, 4);
+                        break;
+                    }
+                }
+
+                if (pc_ip_known_) {
+                    uint8_t resp_buf[ParamResponse::wireSize()];
+                    resp.pack(resp_buf);
+                    udp.send(pc_ip_, PC_udp_port_param_response_listening, resp_buf, sizeof(resp_buf));
+                }
+            }
             break;
         }
 
