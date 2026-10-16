@@ -23,23 +23,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 find_package(Threads REQUIRED)
 find_path(ASIO_INCLUDE_DIR asio.hpp)
 
-# VectorNav SDK (vnproglib) — used by Imu.cpp. Point this at the cpp/
-# directory of a vnproglib checkout; built as a subdirectory so it's
-# compiled with the same toolchain/flags as the rest of this project.
-set(VNPROGLIB_DIR "/home/dvolpi/Source/vnproglib/cpp" CACHE PATH
-    "Path to vnproglib's cpp/ directory (VectorNav SDK)")
-if(NOT EXISTS ${VNPROGLIB_DIR}/CMakeLists.txt)
-    message(FATAL_ERROR "VNPROGLIB_DIR (${VNPROGLIB_DIR}) does not contain vnproglib's cpp/ sources. "
-                         "Set -DVNPROGLIB_DIR=/path/to/vnproglib/cpp")
+# Bundled VectorNav SDK (vnproglib), used by Imu.cpp and built with
+# the same toolchain/flags as the rest of this project.
+set(VNPROGLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vnproglib/cpp")
+if(NOT EXISTS "${VNPROGLIB_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "Bundled VectorNav SDK not found at ${VNPROGLIB_DIR}. "
+                         "Ensure external/vnproglib/cpp contains the SDK sources.")
 endif()
 # dash_hardware_interface is a SHARED lib, so libvncxx (linked into it) must be -fPIC too.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_subdirectory(${VNPROGLIB_DIR} ${CMAKE_BINARY_DIR}/vnproglib)
+add_subdirectory("${VNPROGLIB_DIR}" "${CMAKE_BINARY_DIR}/vnproglib")
 
 #include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${ASIO_INCLUDE_DIR})
-include_directories(${VNPROGLIB_DIR}/include)
+include_directories("${VNPROGLIB_DIR}/include")
 
 # source files
 set(SRC_FILES
