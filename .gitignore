@@ -1,3 +1,19 @@
 *build
 **/__pycache__
 **.pyc
+
+# Auto-copied Teensy headers
+/teensy/*.h
+/teensy2/*.h
+/teensy3/*.h
+/teensy4/*.h
+
+# Auto-copied source
+/teensy/MsgBase.cpp
+/teensy2/MsgBase.cpp
+/teensy3/MsgBase.cpp
+/teensy4/MsgBase.cpp
+
+# Auto-copied CAN benchmark parameters
+/test/CAN_cyclic_msg_benchmark/Param.h
+/test/CAN_noncyclic_msg_benchmark/Param.h
