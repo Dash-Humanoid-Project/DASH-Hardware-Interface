@@ -17,3 +17,6 @@
 # Auto-copied CAN benchmark parameters
 /test/CAN_cyclic_msg_benchmark/Param.h
 /test/CAN_noncyclic_msg_benchmark/Param.h
+
+# External libraries
+external/

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 project(dash_hardware_interface)
 
 option(UPXTREME_i14 "Build for UPXtreme i14 (PC) platform" ON)
@@ -23,21 +23,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 find_package(Threads REQUIRED)
 find_path(ASIO_INCLUDE_DIR asio.hpp)
 
-# Bundled VectorNav SDK (vnproglib), used by Imu.cpp and built with
-# the same toolchain/flags as the rest of this project.
-set(VNPROGLIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vnproglib/cpp")
-if(NOT EXISTS "${VNPROGLIB_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "Bundled VectorNav SDK not found at ${VNPROGLIB_DIR}. "
-                         "Ensure external/vnproglib/cpp contains the SDK sources.")
+# Bundled VectorNav SDK 1.2.0, built with the project's toolchain.
+set(VECTORNAV_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vectornav-sdk-1-2-0/cpp")
+if(NOT EXISTS "${VECTORNAV_SDK_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR "Bundled VectorNav SDK not found at ${VECTORNAV_SDK_DIR}.")
 endif()
-# dash_hardware_interface is a SHARED lib, so libvncxx (linked into it) must be -fPIC too.
+# The SDK object library is linked into our shared library.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_subdirectory("${VNPROGLIB_DIR}" "${CMAKE_BINARY_DIR}/vnproglib")
+add_subdirectory("${VECTORNAV_SDK_DIR}" "${CMAKE_BINARY_DIR}/vectornav-sdk" EXCLUDE_FROM_ALL)
 
 #include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${ASIO_INCLUDE_DIR})
-include_directories("${VNPROGLIB_DIR}/include")
 
 # source files
 set(SRC_FILES
@@ -55,7 +52,10 @@ set(SRC_FILES
 
 # library
 add_library(dash_hardware_interface SHARED ${SRC_FILES})
-target_link_libraries(dash_hardware_interface Threads::Threads libvncxx)
+target_link_libraries(dash_hardware_interface PUBLIC Threads::Threads PRIVATE oVnSensor)
+
+# Runtime IMU defaults, available when diagnostics run from build/.
+configure_file(imu.conf imu.conf COPYONLY)
 
 # executable
 add_executable(closed_loop_test
@@ -72,7 +72,7 @@ target_link_libraries(closed_loop_test dash_hardware_interface)
 add_executable(test_udp_benchmark test/udp_benchmark/test_udp_benchmark.cpp)
 target_link_libraries(test_udp_benchmark dash_hardware_interface)
 
-# Standalone IMU hardware verification test
+# IMU hardware diagnostic.
 add_executable(imu_test test/ImuTest.cpp)
 target_link_libraries(imu_test dash_hardware_interface)
 
