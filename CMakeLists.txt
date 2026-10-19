@@ -54,9 +54,6 @@ set(SRC_FILES
 add_library(dash_hardware_interface SHARED ${SRC_FILES})
 target_link_libraries(dash_hardware_interface PUBLIC Threads::Threads PRIVATE oVnSensor)
 
-# Runtime IMU defaults, available when diagnostics run from build/.
-configure_file(imu.conf imu.conf COPYONLY)
-
 # executable
 add_executable(closed_loop_test
     test/ClosedLoopControlTest.cpp

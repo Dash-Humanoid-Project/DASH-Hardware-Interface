@@ -16,7 +16,7 @@ int main(int argc, char** argv)
     std::string port = (argc > 1) ? argv[1] : "/dev/ttyUSB0";
     std::cout << "Connecting to IMU on " << port << " (Ctrl+C to stop)..." << std::endl;
 
-    std::string configPath = (argc > 2) ? argv[2] : "imu.conf";
+    std::string configPath = (argc > 2) ? argv[2] : "";
     Imu imu(port, 115200, configPath);
     imu.start();
 

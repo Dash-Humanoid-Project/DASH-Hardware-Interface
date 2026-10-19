@@ -3,6 +3,7 @@
 #include "Math/vectornav/Conversions.hpp"
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -11,6 +12,18 @@
 #include <utility>
 
 namespace {
+std::string defaultConfigPath()
+{
+    std::error_code error;
+    const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (error) {
+        throw std::runtime_error("cannot resolve IMU config from executable path: "
+                                 + error.message());
+    }
+    return (executable.parent_path() / ".." / "config" / "imu.conf")
+        .lexically_normal().string();
+}
+
 void checkError(VN::Error error, const char* operation)
 {
     if (error == VN::Error::None) return;
@@ -94,7 +107,8 @@ void Imu::start()
 
     auto impl = std::make_unique<Impl>();
     try {
-        impl->temperatureThreshold = loadTemperatureThreshold(configPath_);
+        impl->temperatureThreshold = loadTemperatureThreshold(
+            configPath_.empty() ? defaultConfigPath() : configPath_);
         checkError(impl->sensor.connect(port_, static_cast<VN::Sensor::BaudRate>(baudrate_)), "connect");
         if (!impl->sensor.verifySensorConnectivity()) {
             throw std::runtime_error("verifySensorConnectivity failed");

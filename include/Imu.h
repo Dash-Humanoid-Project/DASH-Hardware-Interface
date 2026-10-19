@@ -22,8 +22,10 @@ struct ImuState {
 // soft reboots. Call all methods from one application thread.
 class Imu {
 public:
+    // Empty configPath uses ../config/imu.conf relative to the executable directory
+    // on Linux. Explicit relative paths use the process working directory.
     explicit Imu(std::string port, uint32_t baudrate = 115200,
-                 std::string configPath = "imu.conf");
+                 std::string configPath = "");
     ~Imu();
 
     void start();  // connects, restores factory settings, configures 100 Hz output
