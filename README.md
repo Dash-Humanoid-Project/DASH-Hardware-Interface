@@ -34,7 +34,7 @@ One Teensy per limb. All four (Teensy 1/2/3/4 = left leg/right leg/left arm/righ
 - **`Mode`** (`include/Mode.h`) — base class (`onEnter`/`run`/`onExit`/`canExit`) for a live-switchable control mode, modeled on Cheetah-Software's `FSM_State<T>`. `PositionMode`/`ImpedanceMode`/`CartesianMode` (`test/*.cpp`) each implement it, driving all four limbs at once.
 - **`ModeDispatcher`** (`include/ModeDispatcher.h`) — owns the current `Mode` and switches it on a mapped keypress via `KeyboardInput`. `KeyboardInput` (`include/KeyboardInput.h`) is a RAII termios raw/non-blocking stdin wrapper that degrades gracefully (no-op) if stdin isn't a TTY.
 - **`TrajectoryPlayback`** (`test/TrajectoryPlayback.h`) — hand-guided record/playback for the arms: idles the target arm so it can be moved by hand, samples `getJointStates()` at 50 Hz, and can later ramp back in and stream the recording back with velocity feedforward from finite differences. Backs the `--record`/`--playback` CLI flags below.
-- **`Imu`** — thin wrapper around a VectorNav IMU's `EzAsyncData` API (USB-serial). Provides roll/pitch/yaw and body-frame angular rate; not yet fused with anything (no body-frame state estimator exists yet).
+- **`Imu`** — thin wrapper around a VectorNav IMU's SDK 1.2.0 `VN::Sensor` API (USB-serial). Provides roll/pitch/yaw and body-frame angular rate; not yet fused with anything (no body-frame state estimator exists yet).
 - **`PeriodicTimer`** (`include/PeriodicTimer.h`) — `timerfd`-anchored fixed-rate scheduler for the PC-side control loop. `wait()` blocks until the next tick on a schedule fixed at construction, so a slow iteration is reported as a miss (`lastMissedTicks()`) rather than permanently shifting the phase of future ticks the way `std::this_thread::sleep_for` would.
 
 ## Wire protocol
@@ -62,12 +62,11 @@ Feedback comes back as one `SystemData<N>` block per CAN bus, aggregated in a `S
 
 ## Build
 
-Requires a checkout of vnproglib (VectorNav SDK, used by `Imu`) — point `-DVNPROGLIB_DIR` at its `cpp/` directory if it's not at the CMake default (`/home/dvolpi/Source/vnproglib/cpp`).
+Requires CMake 3.16+, standalone Asio, threads, and the bundled VectorNav SDK at `external/vectornav-sdk-1-2-0/cpp`. Run configure/build inside the development container at `/workspace`:
 
-```
-mkdir build && cd build
-cmake .. -DCMAKE_EXPORT_COMPILE_COMMANDS=ON [-DVNPROGLIB_DIR=/path/to/vnproglib/cpp]
-make -j$(nproc)
+```sh
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build -j $(nproc)
 ```
 
 Produces `closed_loop_test`, `test_udp_benchmark`, and `imu_test`. Zero build errors expected; two pre-existing, harmless `UPXTREME_i14 redefined` warnings from files that both define it (command-line and file-level).
