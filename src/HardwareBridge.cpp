@@ -9,8 +9,13 @@
 // center (motor-side), so commanding/reporting joint-space radians requires
 // scaling by the actual reduction ratio, not treating every joint as direct-drive.
 static constexpr float TWO_PI_F = static_cast<float>(2.0 * M_PI);
-static constexpr float TURNS_PER_RAD_10_1 = 10.0f / TWO_PI_F;  // hip_yaw/roll/pitch, knee
-static constexpr float TURNS_PER_RAD_36_1 = 36.0f / TWO_PI_F;  // ankle
+static constexpr float TURNS_PER_RAD_10_1 = 10.0f / TWO_PI_F;  // hip_yaw/roll/pitch (direct gearbox)
+// knee: four-bar linkage, NOT the hip's direct 10:1 gearbox (confirmed
+// 2026-10-22) — was wrongly sharing TURNS_PER_RAD_10_1 above. A flat ratio
+// is itself only a linearized approximation of a four-bar's true
+// (position-dependent) transmission, same caveat as the ankle below.
+static constexpr float TURNS_PER_RAD_18_1 = 18.0f / TWO_PI_F;  // knee
+static constexpr float TURNS_PER_RAD_36_1 = 36.0f / TWO_PI_F;  // ankle (also a four-bar; same caveat)
 
 HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
 {
@@ -48,11 +53,24 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
     // limits are an arbitrary conservative guess. All of these need real
     // verification before the full range of motion is exploited for
     // standing/walking.
+    //
+    // l_knee correction (2026-10-22): was wrongly using TURNS_PER_RAD_10_1
+    // (the hip's ratio) instead of its own 18:1 four-bar ratio, and its
+    // -1.89 rad limit was itself back-converted using that same wrong 10:1
+    // — i.e. both the conversion AND the value were wrong together, not
+    // just mislabeled. Re-derived from Param.h's ODRV3_Q_MIN/MAX_TURNS
+    // (+-3.0 turns, in motor-turns space and so unaffected by this bug),
+    // which converts to +-pi/3 rad (~1.047) at the correct 18:1 ratio —
+    // this is the exact same physical range the knee has always actually
+    // been limited to, just correctly labeled now. Needs a fresh
+    // record_joint_limits sweep to replace this with a real measurement
+    // (the true comfortable range is likely smaller than this hard
+    // backstop, same as every other un-swept limit in this file).
     std::vector<MotorConfig> left_motors = {
         {"l_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
         {"l_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
         {"l_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
-        {"l_knee",      1, 1, TURNS_PER_RAD_10_1, -1.89f, 0.0f,  2.0f, 1.5f},
+        {"l_knee",      1, 1, TURNS_PER_RAD_18_1, -static_cast<float>(M_PI / 3.0), 0.0f, 2.0f, 1.5f},
         {"l_ankle",     2, 0, TURNS_PER_RAD_36_1, -0.3f,  0.3f,  1.0f, 0.5f},
     };
     left_leg_ = std::make_unique<Leg>(*teensys_[0], std::move(left_motors), "left_leg");
@@ -60,19 +78,31 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
     // ---- Right leg (Teensy 2) ----
     // Bus 0: r_hip_yaw (slot 0), r_hip_roll (slot 1)
     // Bus 1: r_hip_pitch (slot 0), r_knee (slot 1)
-    // r_ankle (ODRV9, reserved) is not physically installed, so unlike the
-    // left leg's l_ankle there's no 5th MotorConfig entry or 3rd CAN bus
-    // here (SystemConfig gives Teensy 2 only 2 bus lines). Gear ratios
-    // confirmed identical to the left leg by the user directly.
+    // Bus 2: r_ankle (slot 0) — slot 1 unused, see teensy2.ino setup().
+    // r_ankle (ODRV9) was physically installed 2026-10-22, on its own
+    // dedicated CAN3 bus mirroring the left leg's l_ankle topology
+    // (SystemConfig's N_CAN_bus_lines_per_teensy bumped 2 -> 3 for Teensy 2
+    // to match). Gear ratios confirmed identical to the left leg by the
+    // user directly.
+    //
+    // r_ankle spins the OPPOSITE direction from l_ankle (confirmed by the
+    // user) — but l_ankle's own placeholder limits below are symmetric
+    // around zero, so negating them for the clamp yields the same interval;
+    // see the ODRV9_* comment in Param.h for the full reasoning. Like
+    // l_ankle, r_ankle has never been swept — these limits are the same
+    // arbitrary conservative guess, not a real measurement.
     //
     // Joint-limit clamp values, per explicit direction spec (2026-09-10, not
     // derived from kinematics): hip_yaw/hip_roll spin the same direction on
     // both legs, so their limits are a straight clone of the left leg's.
     // knee spins the opposite direction on the right leg, so its limit is
-    // negated-and-swapped: left's [-1.89, 0.0] becomes r_knee's [0.0, 1.89]
-    // — must stay in sync with the sign convention in PositionMode.cpp's
-    // sweepTargets() and the firmware clamp in teensy2/Param.h (ODRV8), or
-    // the PC and firmware clamps fight.
+    // negated-and-swapped from l_knee's — must stay in sync with the sign
+    // convention in PositionMode.cpp's sweepTargets() and the firmware
+    // clamp in teensy2/Param.h (ODRV8), or the PC and firmware clamps
+    // fight. See l_knee's comment above (2026-10-22 correction): r_knee is
+    // also an 18:1 four-bar, not the hip's 10:1 gearbox, so this is
+    // [0.0, pi/3] (~1.047 rad, re-derived from ODRV8_Q_MAX_TURNS = 3.0 at
+    // the correct ratio), not the old mislabeled [0.0, 1.89].
     //
     // r_hip_pitch's limits (2026-09-11) are measured directly on this
     // specific rig via record_joint_limits — the mechanical setup here is
@@ -85,7 +115,8 @@ HardwareBridge::HardwareBridge(bool sim_mode) : sim_mode_(sim_mode)
         {"r_hip_yaw",   0, 0, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
         {"r_hip_roll",  0, 1, TURNS_PER_RAD_10_1, -0.63f, 0.63f, 2.0f, 1.0f},
         {"r_hip_pitch", 1, 0, TURNS_PER_RAD_10_1, -2.146f, 0.882f, 2.0f, 1.5f},
-        {"r_knee",      1, 1, TURNS_PER_RAD_10_1,  0.0f, 1.89f,  2.0f, 1.5f},
+        {"r_knee",      1, 1, TURNS_PER_RAD_18_1,  0.0f, static_cast<float>(M_PI / 3.0), 2.0f, 1.5f},
+        {"r_ankle",     2, 0, TURNS_PER_RAD_36_1, -0.3f,  0.3f,  1.0f, 0.5f},
     };
     right_leg_ = std::make_unique<Leg>(*teensys_[1], std::move(right_motors), "right_leg");
 

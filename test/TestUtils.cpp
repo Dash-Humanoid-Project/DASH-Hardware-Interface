@@ -62,3 +62,15 @@ void rampJointsToZero(HardwareBridge& bridge, Leg& leg, const std::vector<std::s
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
+
+Leg& selectLeg(HardwareBridge& bridge, const std::string& joint)
+{
+    bool is_right = joint.rfind("r_", 0) == 0;
+    bool is_left  = joint.rfind("l_", 0) == 0;
+    if (!is_left && !is_right) {
+        throw std::runtime_error("Joint name must start with l_ or r_: " + joint);
+    }
+    bool is_arm = joint.find("shoulder") != std::string::npos || joint.find("elbow") != std::string::npos;
+    if (is_arm) return is_right ? bridge.rightArm() : bridge.leftArm();
+    return is_right ? bridge.rightLeg() : bridge.leftLeg();
+}

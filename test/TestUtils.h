@@ -28,3 +28,10 @@ void rampJointsToZero(HardwareBridge& bridge, Leg& leg, const std::vector<std::s
                        float max_offset_rad = 0.3f,
                        float ramp_duration_s = 1.5f,
                        float hold_duration_s = 0.3f);
+
+// Maps a joint name to its owning limb. l_*/r_* selects left/right;
+// shoulder/elbow selects the arm, everything else the leg. Shared by any
+// tool that takes an arbitrary joint name on the command line (e.g.
+// calibrate_absolute_encoder, param_test) rather than being hardcoded to
+// one limb. Throws if joint doesn't start with l_ or r_.
+Leg& selectLeg(HardwareBridge& bridge, const std::string& joint);

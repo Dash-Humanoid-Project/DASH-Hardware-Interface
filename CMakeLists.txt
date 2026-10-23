@@ -82,6 +82,11 @@ target_link_libraries(imu_test dash_hardware_interface)
 add_executable(calibrate_absolute_encoder test/CalibrateAbsoluteEncoder.cpp test/TestUtils.cpp)
 target_link_libraries(calibrate_absolute_encoder dash_hardware_interface)
 
+# Generic one-off ODrive CAN endpoint get/set, for poking at a parameter
+# that doesn't have dedicated code yet (e.g. current_lim/torque_lim)
+add_executable(param_test test/ParamTest.cpp test/TestUtils.cpp)
+target_link_libraries(param_test dash_hardware_interface)
+
 # Startup sanity move: ramp calibrated absolute-encoder joints from
 # "almost zero" to exactly 0.0 rad
 add_executable(startup_zero_move test/StartupZeroMove.cpp test/TestUtils.cpp)
@@ -91,6 +96,11 @@ target_link_libraries(startup_zero_move dash_hardware_interface)
 # absolute-encoder zero, by hand
 add_executable(record_joint_limits test/RecordJointLimits.cpp test/TestUtils.cpp)
 target_link_libraries(record_joint_limits dash_hardware_interface)
+
+# Ramps every joint on all four limbs to 0 rad, then holds there
+# indefinitely via compliant (low-gain) impedance control
+add_executable(zero_and_hold test/ZeroAndHold.cpp test/TestUtils.cpp)
+target_link_libraries(zero_and_hold dash_hardware_interface)
 
 # copy selected files to teensy/
 file(GLOB HEADER_FILES_TO_COPY ${CMAKE_SOURCE_DIR}/include/*.h)

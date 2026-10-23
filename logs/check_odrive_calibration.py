@@ -48,6 +48,11 @@ def describe_axis(axis, label):
     if not isinstance(motor, str):
         print(f"    motor.is_calibrated         = {get(motor, 'is_calibrated')}")
         print(f"    motor.error                 = {get(motor, 'error')}")
+        motor_cfg = get(motor, "config")
+        if not isinstance(motor_cfg, str):
+            print(f"    motor.config.current_lim    = {get(motor_cfg, 'current_lim')}  "
+                  f"(Amps — a hard ceiling on commanded current/torque, independent of this\n"
+                  f"                                   codebase's Kp/Kd; compare hip_pitch against other joints here)")
     else:
         print(f"    motor.*                     = {motor}")
 
@@ -81,6 +86,9 @@ def describe_axis(axis, label):
                   f"(compare left vs. right leg here)")
             print(f"    controller.config.vel_gain                 = {get(ctrl_cfg, 'vel_gain')}")
             print(f"    controller.config.vel_integrator_gain      = {get(ctrl_cfg, 'vel_integrator_gain')}")
+            print(f"    controller.config.torque_lim                = {get(ctrl_cfg, 'torque_lim')}  "
+                  f"(Nm — software torque ceiling; often 'inf'/unset, meaning motor.config.current_lim\n"
+                  f"                                   above is the real ceiling instead)")
         else:
             print(f"    controller.config.*         = {ctrl_cfg}")
     else:

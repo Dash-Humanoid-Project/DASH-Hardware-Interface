@@ -1,7 +1,9 @@
 // ===== Teensy 2 — Right leg firmware =====
 // IP: 10.176.32.34   Port: 8001
-// ODrive node IDs: 5 (r_hip_yaw), 6 (r_hip_roll), 7 (r_hip_pitch), 8 (r_knee)
-// CAN1: nodes 5, 6  |  CAN2: nodes 7, 8
+// ODrive node IDs: 5 (r_hip_yaw), 6 (r_hip_roll), 7 (r_hip_pitch), 8 (r_knee),
+//                  9 (r_ankle)
+// CAN1: nodes 5, 6  |  CAN2: nodes 7, 8  |  CAN3: node 9 (r_ankle, added
+// 2026-10-22, mirroring teensy.ino's dedicated CAN3-for-ankle pattern)
 //
 // Generated from teensy/teensy.ino (Teensy 1, left leg) with these changes:
 //   - staticIP → 10.176.32.34
@@ -32,6 +34,7 @@ using namespace qindesign::network;
 
 FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
 FlexCAN_T4<CAN2, RX_SIZE_256, TX_SIZE_16> can2;
+FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16> can3;
 
 // ----- Network config (right leg) -----
 IPAddress staticIP(10, 176, 32, 34);
@@ -77,24 +80,29 @@ static bool watchdog_tripped = false;
 // Static payload buffer — avoids heap allocation at 500 Hz.
 static uint8_t payload_buf[MAX_CMD_PAYLOAD_SIZE];
 
-// ----- ODrive objects (right leg: nodes 5-8) -----
+// ----- ODrive objects (right leg: nodes 5-9) -----
 ODriveCAN odrv5(wrap_can_intf(ODRV5_CAN), ODRV5_CAN_NODE_ID);
 ODriveCAN odrv6(wrap_can_intf(ODRV6_CAN), ODRV6_CAN_NODE_ID);
 ODriveCAN odrv7(wrap_can_intf(ODRV7_CAN), ODRV7_CAN_NODE_ID);
 ODriveCAN odrv8(wrap_can_intf(ODRV8_CAN), ODRV8_CAN_NODE_ID);
+ODriveCAN odrv9(wrap_can_intf(ODRV9_CAN), ODRV9_CAN_NODE_ID);
 
-ODriveCAN* odrives[]      = {&odrv5, &odrv6, &odrv7, &odrv8};
+ODriveCAN* odrives[]      = {&odrv5, &odrv6, &odrv7, &odrv8, &odrv9};
 ODriveCAN* odrives_can1[] = {&odrv5, &odrv6};
 ODriveCAN* odrives_can2[] = {&odrv7, &odrv8};
+// odrv9 (r_ankle) on its own dedicated CAN3 bus — see ODRV9_CAN in Param.h,
+// mirroring teensy.ino's odrv4/l_ankle precedent.
+ODriveCAN* odrives_can3[] = {&odrv9};
 
 // Per-joint safety limits, indexed to match odrives[] above. Firmware-level
 // backstop — enforced independently of the PC-side clamp in Leg.cpp, so a
 // bad/garbled command still can't drive the hardware out of range. See
 // Param.h for values and derivation.
-static constexpr float q_min_turns[]   = {ODRV5_Q_MIN_TURNS, ODRV6_Q_MIN_TURNS, ODRV7_Q_MIN_TURNS, ODRV8_Q_MIN_TURNS};
-static constexpr float q_max_turns[]   = {ODRV5_Q_MAX_TURNS, ODRV6_Q_MAX_TURNS, ODRV7_Q_MAX_TURNS, ODRV8_Q_MAX_TURNS};
-static constexpr float tau_max_nm[]    = {ODRV5_TAU_MAX_NM, ODRV6_TAU_MAX_NM, ODRV7_TAU_MAX_NM, ODRV8_TAU_MAX_NM};
-static constexpr float vel_max_turns_s[] = {ODRV5_VEL_MAX_TURNS_S, ODRV6_VEL_MAX_TURNS_S, ODRV7_VEL_MAX_TURNS_S, ODRV8_VEL_MAX_TURNS_S};
+static constexpr float q_min_turns[]   = {ODRV5_Q_MIN_TURNS, ODRV6_Q_MIN_TURNS, ODRV7_Q_MIN_TURNS, ODRV8_Q_MIN_TURNS, ODRV9_Q_MIN_TURNS};
+static constexpr float q_max_turns[]   = {ODRV5_Q_MAX_TURNS, ODRV6_Q_MAX_TURNS, ODRV7_Q_MAX_TURNS, ODRV8_Q_MAX_TURNS, ODRV9_Q_MAX_TURNS};
+static constexpr float tau_max_nm[]    = {ODRV5_TAU_MAX_NM, ODRV6_TAU_MAX_NM, ODRV7_TAU_MAX_NM, ODRV8_TAU_MAX_NM, ODRV9_TAU_MAX_NM};
+static constexpr float vel_max_turns_s[] = {ODRV5_VEL_MAX_TURNS_S, ODRV6_VEL_MAX_TURNS_S, ODRV7_VEL_MAX_TURNS_S, ODRV8_VEL_MAX_TURNS_S, ODRV9_VEL_MAX_TURNS_S};
+static constexpr int node_ids[] = {ODRV5_CAN_NODE_ID, ODRV6_CAN_NODE_ID, ODRV7_CAN_NODE_ID, ODRV8_CAN_NODE_ID, ODRV9_CAN_NODE_ID};
 
 std::unique_ptr<SystemDataContainer> sys_data_;
 size_t num_odrives = 0;
@@ -119,10 +127,12 @@ ODriveUserData odrv5_user_data(ODRV5_CAN_BUS_ID, ODRV5_CAN_ORDER_ID, &ODRV5_CAN)
 ODriveUserData odrv6_user_data(ODRV6_CAN_BUS_ID, ODRV6_CAN_ORDER_ID, &ODRV6_CAN);
 ODriveUserData odrv7_user_data(ODRV7_CAN_BUS_ID, ODRV7_CAN_ORDER_ID, &ODRV7_CAN);
 ODriveUserData odrv8_user_data(ODRV8_CAN_BUS_ID, ODRV8_CAN_ORDER_ID, &ODRV8_CAN);
+ODriveUserData odrv9_user_data(ODRV9_CAN_BUS_ID, ODRV9_CAN_ORDER_ID, &ODRV9_CAN);
 
 ODriveUserData* odrives_data[] = {
     &odrv5_user_data, &odrv6_user_data,
-    &odrv7_user_data, &odrv8_user_data
+    &odrv7_user_data, &odrv8_user_data,
+    &odrv9_user_data
 };
 
 // Called every time a Heartbeat message arrives from the ODrive
@@ -189,6 +199,10 @@ void onCanMessage2(const CanMsg& msg) {
     for (auto odrive: odrives_can2) { onReceive(msg, *odrive); }
 }
 
+void onCanMessage3(const CanMsg& msg) {
+    for (auto odrive: odrives_can3) { onReceive(msg, *odrive); }
+}
+
 // ===== Setup =====
 
 void setup()
@@ -206,6 +220,11 @@ void setup()
     sys_data_ = std::make_unique<SystemDataContainer>();
     sys_data_->add(SystemData<N_ODRIVE_CAN3>());  // right leg CAN1: r_hip_yaw + r_hip_roll
     sys_data_->add(SystemData<N_ODRIVE_CAN4>());  // right leg CAN2: r_hip_pitch + r_knee
+    // CAN3 carries only r_ankle (1 real motor), but UPXtreme.cpp on the PC
+    // side hardcodes SystemData<2> for every bus, so this bus is padded to
+    // 2 slots to keep packet sizes in sync; node 1 is unused/always zero —
+    // same as teensy.ino's l_ankle bus.
+    sys_data_->add(SystemData<2>());
 
     num_odrives      = sizeof(odrives)      / sizeof(odrives[0]);
     num_odrives_data = sizeof(odrives_data) / sizeof(odrives_data[0]);
@@ -313,6 +332,7 @@ bool setupCAN()
     // setClock() is called again afterward.
     can1.begin();
     can2.begin();
+    can3.begin();
     can1.setClock(CLK_60MHz);
 
     can1.setBaudRate(CAN_BAUDRATE);
@@ -387,6 +407,22 @@ bool setupCAN()
     // close (see CAN1's comment above) reopens.
     can2.events();
 
+    // CAN3: r_ankle (node 9), added 2026-10-22 — mirrors teensy.ino's
+    // dedicated CAN3-for-ankle pattern (and CAN2's fix above: explicit
+    // wildcard mailbox assignment, not distribute() alone).
+    can3.setBaudRate(CAN_BAUDRATE);
+    can3.setMaxMB(20);
+    {
+        int mb3 = 0;
+        for (int i = 0; i < 15; i++) { can3.setMB(mb3, RX); can3.setMBFilter(mb3, ACCEPT_ALL); mb3++; }
+        for (int i = 0; i < 5; i++) { can3.setMB(mb3, TX); mb3++; }
+    }
+    can3.enableMBInterrupts();
+    can3.onReceive(onCanMessage3);
+    // events() must be the *very next* statement after onReceive() — see
+    // the comment on CAN2's events() call above.
+    can3.events();
+
     return true;
 }
 
@@ -396,6 +432,7 @@ void loop()
 {
     pumpEvents(can1);
     pumpEvents(can2);
+    pumpEvents(can3);
     updateActiveStates();
 
     // Serial Plotter feed (Tools > Serial Plotter) — 50 Hz is plenty for a
@@ -522,7 +559,7 @@ void parseAndProcessUDPPacket()
             // feedforward to this joint's limits before it ever reaches the
             // ODrive, independent of whatever the PC sent. Torque_FF is
             // motor-shaft Nm (same convention as TorqueCommand's clamp below).
-            for (size_t i = 0; i < num_odrives && i < 4; ++i) {
+            for (size_t i = 0; i < num_odrives && i < 5; ++i) {
                 cmd.Input_Pos[i] = clampf(cmd.Input_Pos[i], q_min_turns[i], q_max_turns[i]);
                 cmd.Torque_FF[i] = clampf(cmd.Torque_FF[i], -tau_max_nm[i], tau_max_nm[i]);
             }
@@ -557,7 +594,7 @@ void parseAndProcessUDPPacket()
             std::vector<uint8_t> payload(payload_buf, payload_buf + payload_size);
             cmd.deserialize(payload);
 
-            for (size_t i = 0; i < num_odrives && i < 4; ++i)
+            for (size_t i = 0; i < num_odrives && i < 5; ++i)
                 cmd.Input_Vel[i] = clampf(cmd.Input_Vel[i], -vel_max_turns_s[i], vel_max_turns_s[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
@@ -592,7 +629,7 @@ void parseAndProcessUDPPacket()
             // Torque is the most safety-critical of the three: nothing else
             // protects against a bad value here, so this clamp is the last
             // line of defense before current is commanded.
-            for (size_t i = 0; i < num_odrives && i < 4; ++i)
+            for (size_t i = 0; i < num_odrives && i < 5; ++i)
                 cmd.Input_Torque[i] = clampf(cmd.Input_Torque[i], -tau_max_nm[i], tau_max_nm[i]);
 
             for (size_t i = 0; i < num_odrives; ++i)
@@ -658,12 +695,42 @@ void parseAndProcessUDPPacket()
             // is a sign-sanity check, not a magnitude limit (no data exists
             // to derive a reasonable ceiling, unlike the position/torque
             // clamps above).
-            for (size_t i = 0; i < num_odrives && i < 4; ++i) {
+            //
+            // setPosGain()/setVelGains() return whether the local CAN
+            // peripheral accepted the message into a TX mailbox, same as
+            // setState() in StartCommand above — this loop previously fired
+            // 10 sends (2 per node x 5 nodes) back-to-back with no delay and
+            // discarded the result, the same bug idleAllODrives() had (and
+            // which teensy3.ino/teensy4.ino already got this same fix for —
+            // this board just hadn't, until a commanded gain on r_hip_roll
+            // was confirmed not landing, 2026-10-22). Retry + inter-node
+            // delay + a WARNING print closes that gap.
+            for (size_t i = 0; i < num_odrives && i < 5; ++i) {
                 float pg = cmd.Pos_Gain[i] < 0 ? 0.0f : cmd.Pos_Gain[i];
                 float vg = cmd.Vel_Gain[i] < 0 ? 0.0f : cmd.Vel_Gain[i];
                 float vig = cmd.Vel_Integrator_Gain[i] < 0 ? 0.0f : cmd.Vel_Integrator_Gain[i];
-                odrives[i]->setPosGain(pg);
-                odrives[i]->setVelGains(vg, vig);
+
+                bool pg_ok = false;
+                for (int attempt = 0; attempt < 5 && !pg_ok; ++attempt) {
+                    pg_ok = odrives[i]->setPosGain(pg);
+                    if (!pg_ok) delay(2);
+                }
+                if (!pg_ok) {
+                    Serial.print("WARNING: setPosGain TX not accepted after retries for node ");
+                    Serial.println(node_ids[i]);
+                }
+
+                bool vg_ok = false;
+                for (int attempt = 0; attempt < 5 && !vg_ok; ++attempt) {
+                    vg_ok = odrives[i]->setVelGains(vg, vig);
+                    if (!vg_ok) delay(2);
+                }
+                if (!vg_ok) {
+                    Serial.print("WARNING: setVelGains TX not accepted after retries for node ");
+                    Serial.println(node_ids[i]);
+                }
+
+                delay(10); // let the bus drain before the next node's gain-set
             }
             Serial.println("Applied SetGainsCommand");
             break;

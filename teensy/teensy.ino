@@ -109,6 +109,7 @@ static constexpr float q_min_turns[]   = {ODRV0_Q_MIN_TURNS, ODRV1_Q_MIN_TURNS, 
 static constexpr float q_max_turns[]   = {ODRV0_Q_MAX_TURNS, ODRV1_Q_MAX_TURNS, ODRV2_Q_MAX_TURNS, ODRV3_Q_MAX_TURNS, ODRV4_Q_MAX_TURNS};
 static constexpr float tau_max_nm[]    = {ODRV0_TAU_MAX_NM, ODRV1_TAU_MAX_NM, ODRV2_TAU_MAX_NM, ODRV3_TAU_MAX_NM, ODRV4_TAU_MAX_NM};
 static constexpr float vel_max_turns_s[] = {ODRV0_VEL_MAX_TURNS_S, ODRV1_VEL_MAX_TURNS_S, ODRV2_VEL_MAX_TURNS_S, ODRV3_VEL_MAX_TURNS_S, ODRV4_VEL_MAX_TURNS_S};
+static constexpr int node_ids[] = {ODRV0_CAN_NODE_ID, ODRV1_CAN_NODE_ID, ODRV2_CAN_NODE_ID, ODRV3_CAN_NODE_ID, ODRV4_CAN_NODE_ID};
 
 std::unique_ptr<SystemDataContainer> sys_data_;
 size_t num_odrives = 0;
@@ -816,12 +817,42 @@ void parseAndProcessUDPPacket()
             // is a sign-sanity check, not a magnitude limit (no data exists
             // to derive a reasonable ceiling, unlike the position/torque
             // clamps above).
+            //
+            // setPosGain()/setVelGains() return whether the local CAN
+            // peripheral accepted the message into a TX mailbox, same as
+            // setState() in StartCommand above — this loop previously fired
+            // 10 sends (2 per node x 5 nodes) back-to-back with no delay and
+            // discarded the result, the same bug idleAllODrives() had (and
+            // which teensy3.ino/teensy4.ino already got this same fix for —
+            // this board and teensy2.ino hadn't, until a commanded gain was
+            // confirmed not landing on the right leg, 2026-10-22). Retry +
+            // inter-node delay + a WARNING print closes that gap.
             for (size_t i = 0; i < num_odrives && i < 5; ++i) {
                 float pg = cmd.Pos_Gain[i] < 0 ? 0.0f : cmd.Pos_Gain[i];
                 float vg = cmd.Vel_Gain[i] < 0 ? 0.0f : cmd.Vel_Gain[i];
                 float vig = cmd.Vel_Integrator_Gain[i] < 0 ? 0.0f : cmd.Vel_Integrator_Gain[i];
-                odrives[i]->setPosGain(pg);
-                odrives[i]->setVelGains(vg, vig);
+
+                bool pg_ok = false;
+                for (int attempt = 0; attempt < 5 && !pg_ok; ++attempt) {
+                    pg_ok = odrives[i]->setPosGain(pg);
+                    if (!pg_ok) delay(2);
+                }
+                if (!pg_ok) {
+                    Serial.print("WARNING: setPosGain TX not accepted after retries for node ");
+                    Serial.println(node_ids[i]);
+                }
+
+                bool vg_ok = false;
+                for (int attempt = 0; attempt < 5 && !vg_ok; ++attempt) {
+                    vg_ok = odrives[i]->setVelGains(vg, vig);
+                    if (!vg_ok) delay(2);
+                }
+                if (!vg_ok) {
+                    Serial.print("WARNING: setVelGains TX not accepted after retries for node ");
+                    Serial.println(node_ids[i]);
+                }
+
+                delay(10); // let the bus drain before the next node's gain-set
             }
             Serial.println("Applied SetGainsCommand");
             break;

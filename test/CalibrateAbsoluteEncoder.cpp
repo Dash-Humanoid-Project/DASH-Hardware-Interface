@@ -14,6 +14,29 @@
 // far off the next one needs to correct by. Hence the two-shot approach below
 // — it's board-agnostic and doesn't need to know that constant in advance.
 //
+// 2026-10-22: pos_vel_mapper.working_offset (see EP_WORKING_OFFSET below)
+// tracks closely with this constant and is NOT merely diagnostic as its own
+// comment claimed — but a same-day attempt to derive an exact formula for it
+// (pos_estimate == (raw - offset) + working_offset, assuming pos_rel == raw -
+// offset) led to flipping this section's correction to "offset + error",
+// which a live two-pass test then DISPROVED: offset moved down by exactly
+// the first pass's error, and the second pass's error came back almost
+// exactly DOUBLED, not cancelled — and a later readback showed pos_rel did
+// NOT match raw - offset at all (pos_rel stayed near 0 while raw - offset
+// was ~0.176), invalidating that derivation's key assumption. pos_rel
+// appears to instead track movement since the axis last armed/calibrated,
+// not a function of raw/offset directly.
+//
+// Reverted to the original "offset - error" below on the strength of that
+// direct empirical test (increasing offset moved pos_estimate the SAME
+// direction, so cancelling it means moving offset the OTHER way) rather
+// than a model of the internal mechanism, which remains unconfirmed —
+// ODrive's 0.6.x pos_vel_mapper firmware source is NDA-only, so there's no
+// way to derive this from first principles, only from what hardware
+// testing actually shows. Treat any future claim about the exact internal
+// formula here with real skepticism until it's survived a live two-pass
+// test like this one, not just matched one reading by coincidence.
+//
 //   1st pass: offset = raw (freshly read over CAN), offset_valid=true,
 //             approx_init_pos=0.0, approx_init_pos_valid=true,
 //             absolute_setpoints=true, save_configuration() (reboots)
@@ -47,7 +70,12 @@ constexpr uint16_t EP_ABSOLUTE_SETPOINTS = 390;
 constexpr uint16_t EP_SAVE_CONFIGURATION = 710;
 constexpr uint16_t EP_RAW_ABSOLUTE = 612;    // rs485_encoder_group0.raw, float, [0,1) turns
 constexpr uint16_t EP_POS_ESTIMATE = 225;    // axis0.pos_estimate, float, turns
-constexpr uint16_t EP_WORKING_OFFSET = 441;  // pos_vel_mapper.working_offset, float, turns (diagnostic only)
+constexpr uint16_t EP_WORKING_OFFSET = 441;  // pos_vel_mapper.working_offset, float, turns — tracks closely
+                                              // with the per-board correction constant this file's header
+                                              // discusses, despite its own "diagnostic only" framing, but
+                                              // its exact relationship to pos_estimate is NOT confirmed —
+                                              // see the 2026-10-22 note in the file header before trusting
+                                              // any claimed formula involving it.
 constexpr uint16_t EP_POS_REL = 438;         // pos_vel_mapper.pos_rel, float, turns (diagnostic only)
 
 // A post-calibration pos_estimate within this many turns of 0 counts as
@@ -119,6 +147,75 @@ void saveAndReboot(Leg& leg, const std::string& joint) {
     restoreCanBroadcastRates(leg, joint);
 }
 
+// A single post-reboot pos_estimate read can falsely come back as exactly
+// 0.0 if the CAN GET races the ODrive still re-establishing comms right
+// after save_configuration()'s reboot — ODriveCAN::getEndpoint<T>() returns
+// T{} (zero) on a genuine timeout with no way to tell that apart from a
+// real value of zero (see ParamResponse's comment in Command.h). A real
+// pos_estimate is a continuous physical reading, so landing on EXACTLY 0.0
+// is itself the suspicious case, not something to take at face value.
+// Confirmed 2026-10-22 on l_hip_yaw: a single post-reboot read reported
+// exactly "0 turns" — silently skipped the second corrective pass as a
+// false PASS — while the true settled value moments later (in
+// printReadback()'s independent re-query of the same endpoint) was
+// -0.310786 turns.
+//
+// Mitigation: take reads a short delay apart and require two consecutive
+// ones to agree (within noise) before trusting the result — a real
+// timeout-zero won't keep repeating identically once the ODrive is
+// actually back and responding with its real reading. Exactly 0.0 agreeing
+// twice still isn't trusted outright, since that's exactly what a
+// persistent/longer comms gap would also look like.
+//
+// Throws rather than returning a shrugged-off guess if nothing trustworthy
+// ever arrives: confirmed 2026-10-22 that a board can take meaningfully
+// longer than saveAndReboot()'s fixed 3s wait to actually recover — silently
+// returning 0 in that case let the caller log a false PASS, which is worse
+// than failing loudly here. The joint must be held in exactly the zero
+// position for this whole function's duration (see this file's "hold the
+// joint" messaging in main()) — since this throws instead of looping
+// forever, that hold time stays bounded even when the board doesn't
+// recover in time, instead of the caller having no idea how much longer to
+// keep holding for a result that turns out worthless anyway.
+//
+// Bounded by wall-clock time, not a fixed attempt count: different boards
+// have taken very different amounts of real time to recover in testing
+// (l_hip_yaw settled after one extra 200ms read; r_hip_roll repeatedly
+// needed much longer than a ~1s retry budget, on top of the initial 3s
+// wait) — a time budget adapts to that directly, and generously, rather
+// than guessing another fixed attempt count that might again be too short
+// for some board.
+float readSettledPosEstimate(Leg& leg, const std::string& joint,
+                             std::chrono::milliseconds max_wait = std::chrono::milliseconds(15000)) {
+    auto deadline = std::chrono::steady_clock::now() + max_wait;
+    float prev = leg.getParamFloat(joint, EP_POS_ESTIMATE);
+    int attempt = 1;
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        float cur = leg.getParamFloat(joint, EP_POS_ESTIMATE);
+        ++attempt;
+        bool agree = !std::isnan(cur) && !std::isnan(prev) && std::fabs(cur - prev) < 0.001f;
+        if (agree && cur != 0.0f) {
+            return cur;
+        }
+        if (agree) {
+            std::cout << "  pos_estimate read exactly 0 twice in a row (attempt " << attempt
+                      << ") — still could be a stuck timeout, not a real zero. Still waiting for the "
+                         "board to finish recovering, keep holding..." << std::endl;
+        } else {
+            std::cout << "  pos_estimate read " << prev << " then " << cur << " turns (attempt " << attempt
+                      << ") — didn't agree, still waiting, keep holding..." << std::endl;
+        }
+        prev = cur;
+    }
+    throw std::runtime_error(
+        joint + ": pos_estimate never gave a trustworthy reading within " +
+        std::to_string(max_wait.count()) + "ms (stuck at " + std::to_string(prev) + " turns) — this "
+        "board is taking unusually long to recover from the reboot, or something else is wrong. You "
+        "can let go of the joint now; check Serial output on its Teensy, then try --check on this "
+        "joint once it responds normally before re-running the full calibration.");
+}
+
 void printReadback(Leg& leg, const std::string& joint) {
     std::cout << "Readback for " << joint << ":" << std::endl;
     std::cout << "  raw (absolute sensor)  = " << leg.getParamFloat(joint, EP_RAW_ABSOLUTE) << std::endl;
@@ -135,19 +232,6 @@ void printReadback(Leg& leg, const std::string& joint) {
     // the same pos_estimate the rest of this project already reads at 500Hz.
     std::cout << "  live position_rad      = " << leg.getJointState(joint).position_rad
               << "  (should already be ~0 immediately after a fresh power-on, no homing needed)" << std::endl;
-}
-
-// Maps a joint name to its owning limb. l_*/r_* selects left/right;
-// shoulder/elbow selects the arm, everything else the leg.
-Leg& selectLeg(HardwareBridge& bridge, const std::string& joint) {
-    bool is_right = joint.rfind("r_", 0) == 0;
-    bool is_left  = joint.rfind("l_", 0) == 0;
-    if (!is_left && !is_right) {
-        throw std::runtime_error("Joint name must start with l_ or r_: " + joint);
-    }
-    bool is_arm = joint.find("shoulder") != std::string::npos || joint.find("elbow") != std::string::npos;
-    if (is_arm) return is_right ? bridge.rightArm() : bridge.leftArm();
-    return is_right ? bridge.rightLeg() : bridge.leftLeg();
 }
 
 } // namespace
@@ -183,6 +267,10 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "Calibrating " << joint << " to zero at its current physical position." << std::endl;
+        std::cout << ">>> HOLD " << joint << " FIRMLY AT THE ZERO POSITION NOW — do not let go until this "
+                  << "tool says it's safe. The absolute encoder tracks live position continuously, so any "
+                  << "movement from this point until then (across both reboots if a second pass runs) "
+                  << "shows up as calibration error, not a separate, fixable thing afterward. <<<" << std::endl;
         float raw = leg.getParamFloat(joint, EP_RAW_ABSOLUTE);
         std::cout << "  current raw absolute reading = " << raw << std::endl;
 
@@ -194,12 +282,13 @@ int main(int argc, char** argv) {
         writeAndVerifyBool(leg, joint, EP_ABSOLUTE_SETPOINTS, true, "absolute_setpoints");
         saveAndReboot(leg, joint);
 
-        float error = leg.getParamFloat(joint, EP_POS_ESTIMATE);
+        float error = readSettledPosEstimate(leg, joint);
         std::cout << "  post-reboot pos_estimate (error) = " << error << " turns" << std::endl;
 
         if (std::isnan(error) || std::fabs(error) > kZeroToleranceTurns) {
             std::cout << "Second pass: correcting offset by the observed error "
-                      << "(offset_2 = offset_1 - error)..." << std::endl;
+                      << "(offset_2 = offset_1 - error)... KEEP HOLDING " << joint << " AT ZERO."
+                      << std::endl;
             if (std::isnan(error)) {
                 std::cout << "  error is NaN, not a finite offset to correct with — stopping. "
                           << "Check --check output above for what went wrong." << std::endl;
@@ -209,10 +298,11 @@ int main(int argc, char** argv) {
             writeAndVerifyFloat(leg, joint, EP_OFFSET, corrected_offset, "offset");
             saveAndReboot(leg, joint);
 
-            error = leg.getParamFloat(joint, EP_POS_ESTIMATE);
+            error = readSettledPosEstimate(leg, joint);
             std::cout << "  post-reboot pos_estimate (error) = " << error << " turns" << std::endl;
         }
 
+        std::cout << ">>> You can let go of " << joint << " now. <<<" << std::endl;
         std::cout << (std::fabs(error) <= kZeroToleranceTurns ? "PASS" : "FAIL")
                   << ": final pos_estimate = " << error << " turns (tolerance "
                   << kZeroToleranceTurns << ")" << std::endl;

@@ -48,6 +48,14 @@
 // Teensy 2
 #define N_ODRIVE_CAN3 2   // right leg: T2-CAN1 carries r_hip_yaw + r_hip_roll
 #define N_ODRIVE_CAN4 2   // right leg: T2-CAN2 carries r_hip_pitch + r_knee
+#define N_ODRIVE_CAN10 1  // right leg: r_ankle (1 real motor), own logical
+                          // SystemData bus padded to 2 slots like l_ankle's
+                          // N_ODRIVE_CAN5 — node 1 unused/always zero. Not
+                          // actually substituted in teensy2.ino's
+                          // sys_data_->add() call (which hardcodes
+                          // SystemData<2>() directly, same as teensy.ino
+                          // does for l_ankle) — kept here for the same
+                          // documentation-only purpose as N_ODRIVE_CAN5.
 // Teensy 3
 #define N_ODRIVE_CAN6 2   // left arm: T3-CAN1 carries l_shoulder_pitch + l_shoulder_roll
 #define N_ODRIVE_CAN7 2   // left arm: T3-CAN2 carries l_shoulder_yaw + l_elbow
@@ -67,6 +75,7 @@
 #define ODRV6_CAN_ORDER_ID 1
 #define ODRV7_CAN_ORDER_ID 0
 #define ODRV8_CAN_ORDER_ID 1
+#define ODRV9_CAN_ORDER_ID 0
 // Teensy 3
 #define ODRV10_CAN_ORDER_ID 0
 #define ODRV11_CAN_ORDER_ID 1
@@ -92,6 +101,10 @@
 #define ODRV6_CAN_BUS_ID 0
 #define ODRV7_CAN_BUS_ID 1
 #define ODRV8_CAN_BUS_ID 1
+#define ODRV9_CAN_BUS_ID 2  // logical SystemData bus only — unchanged so the
+                            // PC-Teensy wire protocol doesn't need updating;
+                            // physically on its own dedicated CAN3 wire (see
+                            // ODRV9_CAN below), mirroring ODRV4/l_ankle.
 // Teensy 3
 #define ODRV10_CAN_BUS_ID 0
 #define ODRV11_CAN_BUS_ID 0
@@ -117,6 +130,8 @@
 #define ODRV6_CAN can1
 #define ODRV7_CAN can2
 #define ODRV8_CAN can2
+#define ODRV9_CAN can3  // r_ankle: own dedicated CAN3 bus, mirroring
+                        // l_ankle/ODRV4's topology on the left leg
 // Teensy 3 uses the same physical peripherals (can1/can2) on its own board.
 // 2+2 split (not all 4 on one bus) deliberately, per the CAN2 bandwidth
 // lesson above — 3 nodes sharing one bus already caused audible jerking.
@@ -172,7 +187,11 @@
 #define ODRV4_TAU_MAX_NM     0.027778f
 #define ODRV4_VEL_MAX_TURNS_S 2.864789f
 
-// Teensy 2 (right leg) — hip_yaw/roll/pitch, knee: 10:1 gearbox (r_ankle/ODRV9 unused)
+// Teensy 2 (right leg) — hip_yaw/roll/pitch: 10:1 direct gearbox.
+// knee (ODRV8) is an 18:1 four-bar linkage, not 10:1 (corrected 2026-10-22,
+// see HardwareBridge.cpp's r_knee comment) — was wrongly lumped in with the
+// hips here. r_ankle (ODRV9) wired up 2026-10-22 on its own CAN3 bus, no
+// longer unused.
 #define ODRV5_Q_MIN_TURNS   -1.0f
 #define ODRV5_Q_MAX_TURNS    1.0f
 #define ODRV5_TAU_MAX_NM     0.2f
@@ -200,13 +219,31 @@
 
 // r_knee: per the same spec, knee spins the OPPOSITE direction on the
 // right leg, so this is negated-and-swapped from ODRV3 (l_knee)'s
-// [-3.0, 0.0] — matches HardwareBridge.cpp's r_knee MotorConfig limits
-// ([0.0, 1.89] rad). Must stay in sync with the `sign` term in
-// PositionMode.cpp's sweepTargets() (applied only to the knee).
+// [-3.0, 0.0] — matches HardwareBridge.cpp's r_knee MotorConfig limits,
+// which as of the 2026-10-22 18:1-ratio correction is [0.0, pi/3] rad
+// (~1.047), not the old mislabeled [0.0, 1.89]. Must stay in sync with the
+// `sign` term in PositionMode.cpp's sweepTargets() (applied only to the
+// knee).
 #define ODRV8_Q_MIN_TURNS    0.0f
 #define ODRV8_Q_MAX_TURNS    3.0f
 #define ODRV8_TAU_MAX_NM     0.2f
 #define ODRV8_VEL_MAX_TURNS_S 2.387324f
+
+// r_ankle: physically installed 2026-10-22, on its own dedicated CAN3 bus
+// mirroring l_ankle/ODRV4's topology. Confirmed opposite spin direction
+// from l_ankle, same as the knee's convention above — but unlike the knee,
+// l_ankle's own placeholder limits ([-0.3, 0.3] rad / [-1.719, 1.719] turns)
+// are symmetric around zero, so negating them yields the identical
+// interval. This entry is therefore numerically identical to ODRV4's
+// despite the mirrored convention — the sign flip only matters for code
+// that assumes a shared positive direction between the two ankles (e.g. a
+// future symmetric gait/sweep), not for this clamp. Still just ODRV4's own
+// unswept placeholder, not a real measurement — needs the same
+// record_joint_limits verification l_ankle itself still needs.
+#define ODRV9_Q_MIN_TURNS   -1.719f
+#define ODRV9_Q_MAX_TURNS    1.719f
+#define ODRV9_TAU_MAX_NM     0.027778f
+#define ODRV9_VEL_MAX_TURNS_S 2.864789f
 
 // Teensy 3 (left arm) — shoulder_pitch/roll/yaw, elbow: 10:1 gearbox
 // (confirmed by user 2026-07-28).

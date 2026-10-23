@@ -10,7 +10,11 @@
 struct SystemConfig
 {
     static constexpr int N_teensy = 4;
-    const int N_CAN_bus_lines_per_teensy[N_teensy] = {3, 2, 2, 2};
+    // index 1 (right leg) bumped 2 -> 3 (2026-10-22): r_ankle (ODRV9) is a
+    // real, physically installed actuator on its own dedicated 3rd CAN bus,
+    // mirroring the left leg's l_ankle/CAN3 topology — see HardwareBridge.cpp's
+    // right_motors and teensy2.ino's CAN3 setup.
+    const int N_CAN_bus_lines_per_teensy[N_teensy] = {3, 3, 2, 2};
     const int N_actuator_per_CAN_bus_line = 2;
     const std::string PC_network_interface_name = "enp2s0";
     const std::string teensy_IP[N_teensy] = {TEENSY1_IP, TEENSY2_IP, TEENSY3_IP, TEENSY4_IP};
@@ -19,7 +23,7 @@ struct SystemConfig
     // Dedicated low-rate channel for GetSetParamCommand responses (see
     // UPXtreme::receiveParamResponse) — kept separate from
     // udp_port_PC_teensy above, which is the 500Hz SystemData feedback path
-    // and must not carry any other packet type. Only the right leg
-    // (index 1) is wired up on the Teensy side so far.
+    // and must not carry any other packet type. Wired up on all four
+    // Teensys as of 2026-09-21.
     const int udp_port_param_response_PC_teensy[N_teensy] = {8010, 8011, 8012, 8013};
 };
