@@ -1,0 +1,560 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="Robot">
+    <link name="base">
+        <inertial>
+            <mass value="0"/>
+            <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+        </inertial>
+    </link>
+    <link name="l_dist_hip">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.01881748  0.00035528  0.07969648"/>
+            <mass value="1.69177267"/>
+            <inertia ixx="-0.00626549" ixy="-0.00005028" ixz="-0.00292803" iyy="-0.00783600" iyz="0.00008279" izz="0.00152950"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_dist_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_dist_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_dist_shoulder">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.01089308 0.01853913 0.00439181"/>
+            <mass value="0.98250000"/>
+            <inertia ixx="0.00084197" ixy="0.00030411" ixz="0.00009874" iyy="0.00145209" iyz="0.00010260" izz="0.00056467"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_dist_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_dist_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_foot">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.00133386  0.02046130 -0.00476397"/>
+            <mass value="0.27099438"/>
+            <inertia ixx="-0.00000289" ixy="0.00001748" ixz="0.00001223" iyy="0.00048883" iyz="-0.00001948" izz="0.00040129"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_foot.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_foot.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_forearm">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 -0.15497352  0.01162458"/>
+            <mass value="0.56800000"/>
+            <inertia ixx="-0.00710098" ixy="0.00083459" ixz="0.00000000" iyy="0.00027332" iyz="-0.00102325" izz="-0.00714640"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_forearm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_forearm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_lower_leg">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00145393 0.04209417 0.00762688"/>
+            <mass value="1.33339549"/>
+            <inertia ixx="0.00687765" ixy="-0.00041273" ixz="0.00002037" iyy="0.00102872" iyz="0.00045656" izz="0.00678069"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_lower_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_lower_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_prox_hip">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.06121601 -0.00025192  0.06665665"/>
+            <mass value="1.55679000"/>
+            <inertia ixx="-0.00340110" ixy="0.00002334" ixz="-0.00726999" iyy="-0.00970495" iyz="-0.00016276" izz="-0.00322284"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_prox_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_prox_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_prox_shoulder">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.06868000 -0.00025000  0.01234000"/>
+            <mass value="1.28536000"/>
+            <inertia ixx="0.00242647" ixy="0.00000268" ixz="-0.00081112" iyy="-0.00368754" iyz="0.00000677" izz="-0.00395899"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_prox_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_prox_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_upper_arm">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000  0.00150093 -0.14806958"/>
+            <mass value="1.56800000"/>
+            <inertia ixx="-0.02479497" ixy="-0.00023002" ixz="-0.00000163" iyy="-0.02434342" iyz="-0.00034953" izz="0.00169675"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_upper_arm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_upper_arm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="l_upper_leg">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00701184 0.10329984 0.04025883"/>
+            <mass value="1.20859222"/>
+            <inertia ixx="-0.00008570" ixy="0.00109571" ixz="0.00035495" iyy="0.00042408" iyz="0.00581853" izz="0.00253609"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_upper_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/l_upper_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_dist_hip">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.01881748  0.00035528 -0.07969648"/>
+            <mass value="1.69177267"/>
+            <inertia ixx="-0.00626549" ixy="0.00002766" ixz="0.00292803" iyy="-0.00783600" iyz="-0.00001301" izz="0.00152950"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_dist_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_dist_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_dist_shoulder">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.01089308  0.01853913 -0.00439181"/>
+            <mass value="0.98250000"/>
+            <inertia ixx="0.00084197" ixy="0.00009271" ixz="-0.00009874" iyy="0.00145209" iyz="-0.00005740" izz="0.00056467"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_dist_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_dist_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_foot">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.00133386  0.02046130  0.00476397"/>
+            <mass value="0.27099438"/>
+            <inertia ixx="-0.00000289" ixy="-0.00003228" ixz="-0.00001223" iyy="0.00048883" iyz="0.00003336" izz="0.00040129"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_foot.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_foot.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_forearm">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 -0.15497352 -0.01162458"/>
+            <mass value="0.56800000"/>
+            <inertia ixx="-0.00710098" ixy="-0.00083459" ixz="0.00000000" iyy="0.00027332" iyz="0.00102325" izz="-0.00714640"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_forearm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_forearm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_lower_leg">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00145393  0.04209417 -0.00762688"/>
+            <mass value="1.33339549"/>
+            <inertia ixx="0.00687765" ixy="0.00057595" ixz="-0.00002037" iyy="0.00102872" iyz="-0.00039960" izz="0.00678069"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_lower_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_lower_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_prox_hip">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.06121601 -0.00025192 -0.06665665"/>
+            <mass value="1.55679000"/>
+            <inertia ixx="-0.00340110" ixy="0.00002468" ixz="0.00726999" iyy="-0.00970495" iyz="-0.00011048" izz="-0.00322284"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_prox_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_prox_hip.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_prox_shoulder">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="-0.06868000 -0.00025000 -0.01234000"/>
+            <mass value="1.28536000"/>
+            <inertia ixx="0.00242647" ixy="0.00004146" ixz="0.00081112" iyy="-0.00368754" iyz="0.00001471" izz="-0.00395899"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_prox_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_prox_shoulder.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_upper_arm">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00150093 0.14806958"/>
+            <mass value="1.56800000"/>
+            <inertia ixx="-0.02479497" ixy="0.00023002" ixz="0.00000163" iyy="-0.02434342" iyz="0.00034743" izz="0.00169675"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_upper_arm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_upper_arm.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="r_upper_leg">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00701184  0.10329984 -0.04025883"/>
+            <mass value="1.20859222"/>
+            <inertia ixx="-0.00008570" ixy="0.00065511" ixz="-0.00035495" iyy="0.00042408" iyz="-0.00423389" izz="0.00253609"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_upper_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/r_upper_leg.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <link name="torso">
+        <inertial>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00088719 0.00082013 0.16805062"/>
+            <mass value="9.97300000"/>
+            <inertia ixx="-0.06993049" ixy="0.00057784" ixz="0.00410223" iyy="-0.09663237" iyz="0.00145468" izz="0.07843849"/>
+        </inertial>
+        <visual>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/torso.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.50000000 0.50000000 0.50000000 1.00000000"/>
+            </material>
+        </visual>
+        <collision>
+            <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+            <geometry>
+                <mesh filename="meshes/torso.obj" scale="1.00000000 1.00000000 1.00000000"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="floating_base" type="revolute">
+        <parent link="base"/>
+        <child link="torso"/>
+        <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_ankle" type="revolute">
+        <parent link="l_lower_leg"/>
+        <child link="l_foot"/>
+        <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.28000000 0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_elbow" type="revolute">
+        <parent link="l_upper_arm"/>
+        <child link="l_forearm"/>
+        <origin rpy="1.57079633 0.00000000 3.14159265" xyz="0.00000000  0.00000000 -0.20000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_hip_pitch" type="revolute">
+        <parent link="l_dist_hip"/>
+        <child link="l_upper_leg"/>
+        <origin rpy="1.57079633 -1.22173048  1.57079633" xyz="-0.00500000 -0.00000000  0.09500000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_hip_row" type="revolute">
+        <parent link="l_prox_hip"/>
+        <child link="l_dist_hip"/>
+        <origin rpy="-1.22173048 -0.34906585 -1.57079633" xyz="-0.05244738  0.00280747  0.08171345"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_hip_yaw" type="revolute">
+        <parent link="torso"/>
+        <child link="l_prox_hip"/>
+        <origin rpy="-2.70526034  0.00000000  0.00000000" xyz="0.00000000  0.07500000 -0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_knee" type="revolute">
+        <parent link="l_upper_leg"/>
+        <child link="l_lower_leg"/>
+        <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.28000000 0.04220000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="0.00000000" upper="2.61799388" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_shoulder_pitch" type="revolute">
+        <parent link="torso"/>
+        <child link="l_prox_shoulder"/>
+        <origin rpy="1.57079633 0.00000000 0.00000000" xyz="0.02000000 0.18300000 0.30000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_shoulder_row" type="revolute">
+        <parent link="l_prox_shoulder"/>
+        <child link="l_dist_shoulder"/>
+        <origin rpy="0.00000000 1.57079633 0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="l_shoulder_yaw" type="revolute">
+        <parent link="l_dist_shoulder"/>
+        <child link="l_upper_arm"/>
+        <origin rpy="-1.57079633 -1.57079633  0.00000000" xyz="0.01200000 0.00000000 0.01000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_ankle" type="revolute">
+        <parent link="r_lower_leg"/>
+        <child link="r_foot"/>
+        <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000 0.28000000 0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_elbow" type="revolute">
+        <parent link="r_upper_arm"/>
+        <child link="r_forearm"/>
+        <origin rpy="-1.57079633  0.00000000  3.14159265" xyz="0.00000000 0.00000000 0.20000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_hip_pitch" type="revolute">
+        <parent link="r_dist_hip"/>
+        <child link="r_upper_leg"/>
+        <origin rpy="-1.57079633  1.22175193  1.57079633" xyz="-0.00500000  0.00000000 -0.09500000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_hip_row" type="revolute">
+        <parent link="r_prox_hip"/>
+        <child link="r_dist_hip"/>
+        <origin rpy="1.22171619  0.34904440 -1.57079633" xyz="-0.05244740  0.00280750 -0.08171350"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_hip_yaw" type="revolute">
+        <parent link="torso"/>
+        <child link="r_prox_hip"/>
+        <origin rpy="-0.43633231 -0.00000000 -0.00000000" xyz="-0.00000000 -0.07500000 -0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_knee" type="revolute">
+        <parent link="r_upper_leg"/>
+        <child link="r_lower_leg"/>
+        <origin rpy="0.00000000 0.00000000 0.00000000" xyz="0.00000000  0.28000000 -0.04220000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="0.00000000" upper="2.61799388" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_shoulder_pitch" type="revolute">
+        <parent link="torso"/>
+        <child link="r_prox_shoulder"/>
+        <origin rpy="1.57079633 0.00000000 0.00000000" xyz="0.02000000 -0.18300000  0.30000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_shoulder_row" type="revolute">
+        <parent link="r_prox_shoulder"/>
+        <child link="r_dist_shoulder"/>
+        <origin rpy="0.00000000 -1.57079633  0.00000000" xyz="0.00000000 0.00000000 0.00000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+    <joint name="r_shoulder_yaw" type="revolute">
+        <parent link="r_dist_shoulder"/>
+        <child link="r_upper_arm"/>
+        <origin rpy="1.57079633 1.57079633 0.00000000" xyz="0.01200000  0.00000000 -0.01000000"/>
+        <axis xyz="1.00000000 0.00000000 0.00000000"/>
+        <limit lower="-Inf" upper="Inf" effort="0" velocity="0"/>
+    </joint>
+</robot>

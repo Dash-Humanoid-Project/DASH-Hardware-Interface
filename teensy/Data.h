@@ -67,6 +67,7 @@ struct SystemData : public DataBase {
     }
 
     void printValue() override {
+        if (N == 0) return;  // Skip printing for empty arrays
         PRINT("encoder_Pos_Estimate: [");
         for (size_t i = 0; i < N; ++i)
         {

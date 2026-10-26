@@ -106,8 +106,8 @@ struct BenchmarkPacket {
 
 class UDPBenchmark : public UPXtreme {
 public:
-    UDPBenchmark(const std::string &teensy_IP, const std::string &interface, int udp_port, int n_bus_line, int n_actuator, std::string board_name)
-    : UPXtreme(teensy_IP, interface, udp_port, n_bus_line, n_actuator, board_name)
+    UDPBenchmark(const std::string &teensy_IP, const std::string &interface, int udp_port, int param_response_port, int n_bus_line, int n_actuator, std::string board_name)
+    : UPXtreme(teensy_IP, interface, udp_port, param_response_port, n_bus_line, n_actuator, board_name)
     {
         start();
     }
@@ -257,6 +257,7 @@ int main() {
     UDPBenchmark benchmark(config.teensy_IP[0],
                            config.PC_network_interface_name,
                            config.udp_port_PC_teensy[0],
+                           config.udp_port_param_response_PC_teensy[0],
                            config.N_CAN_bus_lines_per_teensy[0],
                            config.N_actuator_per_CAN_bus_line,
                            "UPXtreme");
